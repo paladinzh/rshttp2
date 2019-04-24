@@ -27,8 +27,9 @@ pub fn parse_header(buf: &[u8]) -> FrameHeader {
 
 #[derive(Debug)]
 pub enum Frame {
-    Headers(HeadersFrame),
-    Settings(SettingsFrame),
+    Headers(HeadersFrame), // 1
+    Settings(SettingsFrame), // 4
+    GoAway(GoAwayFrame), // 7
 }
 
 #[derive(Debug)]
@@ -46,6 +47,13 @@ pub struct SettingsFrame {
     values: Vec<(SettingKey, u32)>,
 }
 
+#[derive(Debug)]
+pub struct GoAwayFrame {
+    last_stream_id: u32,
+    error_code: u32,
+    debug_info: Vec<u8>,
+}
+
 pub fn parse_frame(
     header: &FrameHeader,
     body: Vec<u8>,
@@ -59,6 +67,10 @@ pub fn parse_frame(
             let f = parse_settings_frame(header, body)?;
             Ok(Frame::Settings(f))
         },
+        7 => {
+            let f = parse_go_away_frame(header, body)?;
+            Ok(Frame::GoAway(f))
+        }
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("unknown frame type: {}", header.frame_type)))
@@ -76,6 +88,8 @@ fn parse_headers_frame(
         prioritized: false,
         headers: vec!(),
     };
+
+    // TODO:
 
     Ok(frame)
 }
@@ -120,5 +134,32 @@ fn parse_settings_frame(
     }
 
     Ok(settings)
+}
+
+fn parse_go_away_frame(
+    header: &FrameHeader,
+    body: Vec<u8>,
+) -> Result<GoAwayFrame, io::Error> {
+    assert!(header.frame_type == 7);
+
+    if header.stream_id != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "a GOAWAY frame can only be applied to the whole connection."));
+    }
+
+    let mut frame = GoAwayFrame{
+        last_stream_id: 0,
+        error_code: 0,
+        debug_info: vec!(),
+    };
+
+    let (buf, last_stream_id) = parse_uint::<u32>(body.as_slice(), 4);
+    frame.last_stream_id = last_stream_id;
+    let (buf, ec) = parse_uint::<u32>(buf, 4);
+    frame.error_code = ec;
+    frame.debug_info = buf.to_vec();
+
+    Ok(frame)
 }
 
