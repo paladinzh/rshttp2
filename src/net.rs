@@ -54,7 +54,8 @@ where R: 'static + Send + AsyncRead {
         .and_then(|(socket_in, conn)| {
             read_settings(socket_in, conn)
         })
-        .and_then(|_| {
+        .and_then(|(socket_in, conn)| {
+            reader_continuation(socket_in, conn);
             Ok(())
         })
         .map_err(|err| {
@@ -62,6 +63,26 @@ where R: 'static + Send + AsyncRead {
         });
     tokio::spawn(task);
 }
+
+fn reader_continuation<R>(
+    socket_in: R,
+    conn: Arc<Connection>,
+) -> ()
+where R: 'static + Send + AsyncRead {
+    let task = read_frame(socket_in, conn)
+        .and_then(|(socket_in, conn, frame)| {
+            {
+                let f = &conn.on_frame.0;
+                f(conn.clone(), frame);
+            }
+            reader_continuation(socket_in, conn);
+            Ok(())
+        })
+        .map_err(|err| {
+            error!("Read error: {:?}", err);
+        });
+    tokio::spawn(task);
+ }
 
 fn read_preface<R: 'static + Send + AsyncRead>(
     socket_in: R,
