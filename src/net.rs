@@ -1,5 +1,4 @@
 use std::sync::{Arc};
-use tokio::sync::lock::{Lock, LockGuard};
 use tokio::io;
 use tokio::net::TcpStream;
 use tokio::prelude::*;

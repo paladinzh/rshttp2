@@ -3,6 +3,7 @@ extern crate futures;
 #[macro_use] extern crate log;
 
 mod parsers;
+pub mod settings;
 mod frames;
 pub use frames::{Frame};
 
