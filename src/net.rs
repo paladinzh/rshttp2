@@ -1,30 +1,55 @@
-//use std::sync::Arc;
+use std::sync::{Arc};
+use tokio::sync::lock::{Lock, LockGuard};
 use tokio::io;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 use super::frames::*;
 
-pub fn on_connect(conn: TcpStream) -> Result<(), io::Error> {
-    conn.set_nodelay(true).unwrap();
-    let (input, output) = conn.split();
-    reader(input);
+pub fn on_connect<F>(
+    tcp: TcpStream,
+    on_frame: F,
+) -> Result<(), io::Error>
+where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
+    tcp.set_nodelay(true).unwrap();
+    let conn = Connection::new(on_frame);
+    let (input, output) = tcp.split();
+    reader(input, conn.clone());
     Ok(())
 }
 
 const PREFACE: &str = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-struct ConnectionReader {
+pub struct Connection {
+    on_frame: FnBox,
 }
 
-impl ConnectionReader {
-    fn new() -> ConnectionReader {
-        ConnectionReader{}
+struct FnBox(Box<dyn Fn(Arc<Connection>, Frame) -> ()>);
+
+unsafe impl Send for FnBox {}
+unsafe impl Sync for FnBox {}
+
+impl FnBox {
+    fn new<F>(f: F) -> FnBox
+    where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
+        FnBox(Box::new(f))
     }
 }
 
-fn reader<R: 'static + Send + AsyncRead>(socket_in: R) -> () {
+
+impl Connection {
+    fn new<F>(on_frame: F) -> Arc<Connection>
+    where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
+        Arc::new(Connection{
+            on_frame: FnBox::new(on_frame)})
+    }
+}
+
+fn reader<R>(
+    socket_in: R,
+    conn: Arc<Connection>,
+) -> ()
+where R: 'static + Send + AsyncRead {
     debug!("start to handshake an incoming connection");
-    let conn = ConnectionReader::new();
     let task = read_preface(socket_in, conn)
         .and_then(|(socket_in, conn)| {
             read_settings(socket_in, conn)
@@ -40,8 +65,8 @@ fn reader<R: 'static + Send + AsyncRead>(socket_in: R) -> () {
 
 fn read_preface<R: 'static + Send + AsyncRead>(
     socket_in: R,
-    conn: ConnectionReader,
-) -> impl Future<Item = (R, ConnectionReader), Error = io::Error> {
+    conn: Arc<Connection>,
+) -> impl Future<Item = (R, Arc<Connection>), Error = io::Error> {
     let buf = [0u8; 24];
     io::read_exact(socket_in, buf)
         .then(move |result| {
@@ -71,19 +96,22 @@ fn read_preface<R: 'static + Send + AsyncRead>(
 
 fn read_settings<R: 'static + Send + AsyncRead>(
     socket_in: R,
-    conn: ConnectionReader,
-) -> impl Future<Item = (R, ConnectionReader), Error = io::Error> {
+    conn: Arc<Connection>,
+) -> impl Future<Item = (R, Arc<Connection>), Error = io::Error> {
     read_frame(socket_in, conn)
         .and_then(|(socket_in, conn, frame)| {
-            debug!("got a frame: {:?}", frame);
+            {
+                let f = &conn.on_frame.0;
+                f(conn.clone(), frame);
+            }
             Ok((socket_in, conn))
         })
 }
 
 fn read_frame<R: 'static + Send + AsyncRead>(
     socket_in: R,
-    conn: ConnectionReader,
-) -> impl Future<Item = (R, ConnectionReader, Frame), Error = io::Error> {
+    conn: Arc<Connection>,
+) -> impl Future<Item = (R, Arc<Connection>, Frame), Error = io::Error> {
     let buf = [0u8; 9];
     io::read_exact(socket_in, buf)
         .and_then(|(socket_in, buf)| {

@@ -4,6 +4,7 @@ extern crate futures;
 
 mod parsers;
 mod frames;
+pub use frames::{Frame};
 
 mod net;
 pub use net::on_connect;

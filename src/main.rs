@@ -14,7 +14,9 @@ fn listen_on(addr: &SocketAddr) -> impl Future<Item=(), Error=io::Error> {
     let listener = TcpListener::bind(addr).unwrap();
     
     let server = listener.incoming().for_each(|conn| {
-        on_connect(conn)
+        on_connect(conn, |conn, frame| {
+            info!("got a frame: {:?}", frame);
+        })
     });
     server
 }
