@@ -27,7 +27,17 @@ pub fn parse_header(buf: &[u8]) -> FrameHeader {
 
 #[derive(Debug)]
 pub enum Frame {
+    Headers(HeadersFrame),
     Settings(SettingsFrame),
+}
+
+#[derive(Debug)]
+pub struct HeadersFrame {
+    end_stream: bool,
+    end_headers: bool,
+    padded: bool,
+    prioritized: bool,
+    headers: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -41,6 +51,10 @@ pub fn parse_frame(
     body: Vec<u8>,
 ) -> Result<Frame, io::Error> {
     match header.frame_type {
+        1 => {
+            let f = parse_headers_frame(header, body)?;
+            Ok(Frame::Headers(f))
+        },
         4 => {
             let f = parse_settings_frame(header, body)?;
             Ok(Frame::Settings(f))
@@ -51,7 +65,22 @@ pub fn parse_frame(
     }
 }
 
-pub fn parse_settings_frame(
+fn parse_headers_frame(
+    header: &FrameHeader,
+    body: Vec<u8>,
+) -> Result<HeadersFrame, io::Error> {
+    let frame = HeadersFrame{
+        end_stream: false,
+        end_headers: false,
+        padded: false,
+        prioritized: false,
+        headers: vec!(),
+    };
+
+    Ok(frame)
+}
+
+fn parse_settings_frame(
     header: &FrameHeader,
     body: Vec<u8>,
 ) -> Result<SettingsFrame, io::Error> {
