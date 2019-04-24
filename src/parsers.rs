@@ -1,0 +1,40 @@
+use std::convert::From;
+use std::slice::from_raw_parts;
+use std::ops::*;
+
+pub fn parse_uint<'a, T>(buf: &'a [u8], n: usize) -> (&'a [u8], T)
+where T: From<u8> + ShlAssign<usize> + BitOrAssign<T> {
+    assert!(buf.len() >= n, "buf.len()={} n={}", buf.len(), n);
+    let mut b = buf.as_ptr();
+    let mut res: T = T::from(0u8);
+    unsafe {
+        for _ in 0..n {
+            res <<= 8;
+            res |= T::from(*b);
+            b = b.add(1);
+        }
+        (from_raw_parts(b, buf.len() - n), res)
+    }
+}
+
+
+#[cfg(test)]
+
+#[test]
+fn test_parse_uint_0() {
+    let buf: [u8; 5] = [1, 2, 3, 4, 5];
+    let (remain_buf, res) = parse_uint::<u64>(&buf, 0);
+    assert_eq!(res, 0);
+    assert_eq!(remain_buf.len(), 5);
+    assert_eq!(remain_buf[0], 1);
+}
+
+#[test]
+fn test_parse_uint_1() {
+    let buf: [u8; 5] = [1, 2, 3, 4, 5];
+    let (remain_buf, res) = parse_uint::<u64>(&buf, 4);
+    assert_eq!(res, 0x01020304);
+    assert_eq!(remain_buf.len(), 1);
+    assert_eq!(remain_buf[0], 5);
+}
+
