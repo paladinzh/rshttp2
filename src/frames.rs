@@ -1,7 +1,6 @@
-extern crate tokio;
-
 use tokio::io;
 use super::parsers::*;
+use super::error::*;
 use super::settings::*;
 
 #[derive(Debug)]
@@ -50,7 +49,7 @@ pub struct SettingsFrame {
 #[derive(Debug)]
 pub struct GoAwayFrame {
     last_stream_id: u32,
-    error_code: u32,
+    error_code: ErrorCode,
     debug_info: Vec<u8>,
 }
 
@@ -150,14 +149,14 @@ fn parse_go_away_frame(
 
     let mut frame = GoAwayFrame{
         last_stream_id: 0,
-        error_code: 0,
+        error_code: ErrorCode::NoError,
         debug_info: vec!(),
     };
 
     let (buf, last_stream_id) = parse_uint::<u32>(body.as_slice(), 4);
     frame.last_stream_id = last_stream_id;
-    let (buf, ec) = parse_uint::<u32>(buf, 4);
-    frame.error_code = ec;
+    let (buf, ec) = parse_uint::<usize>(buf, 4);
+    frame.error_code = ErrorCode::from_h2_id(ec);
     frame.debug_info = buf.to_vec();
 
     Ok(frame)

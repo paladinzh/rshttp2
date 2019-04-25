@@ -79,6 +79,7 @@ where R: 'static + Send + AsyncRead {
         })
         .map_err(|err| {
             error!("Read error: {:?}", err);
+            //TODO: error handling
         });
     tokio::spawn(task);
  }

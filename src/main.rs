@@ -3,7 +3,6 @@ extern crate futures;
 #[macro_use] extern crate log;
 extern crate flexi_logger;
 
-use tokio::io;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 use std::net::SocketAddr;
