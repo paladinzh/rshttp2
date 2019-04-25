@@ -10,15 +10,17 @@ use std::net::SocketAddr;
 use flexi_logger::{Logger, with_thread};
 use rshttp2::*;
 
-fn listen_on(addr: &SocketAddr) -> impl Future<Item=(), Error=io::Error> {
+fn listen_on(addr: &SocketAddr) -> impl Future<Item=(), Error=()> {
     let listener = TcpListener::bind(addr).unwrap();
-    
-    let server = listener.incoming().for_each(|conn| {
-        on_connect(conn, |conn, frame| {
-            info!("got a frame: {:?}", frame);
+    listener.incoming()
+        .for_each(|conn| {
+            on_connect(conn, |conn, frame| {
+                info!("got a frame: {:?}", frame);
+            })
         })
-    });
-    server
+        .map_err(|err| {
+            error!("accept error = {:?}", err);
+        })
 }
 
 fn main() {
@@ -27,12 +29,7 @@ fn main() {
         .start()
         .unwrap();
     let addr = "127.0.0.1:2333".parse().unwrap();
-    let server = listen_on(&addr)
-        .map_err(|err| {
-            error!("accept error = {:?}", err);
-        });
-    
+    let server = listen_on(&addr);
     debug!("server running on localhost:2333");
-    
     tokio::run(server);
 }

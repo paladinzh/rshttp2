@@ -4,6 +4,8 @@ extern crate futures;
 
 mod parsers;
 pub mod settings;
+pub mod error;
+
 mod frames;
 pub use frames::{Frame};
 

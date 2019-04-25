@@ -19,7 +19,7 @@ pub const ALL_SETTING_KEYS: [SettingKey; 6] = [
 
 impl SettingKey {
     pub fn from_h2_id(id: usize) -> SettingKey {
-        assert!(id >= 1 && id <= 6, "id={}", id);
+        assert!(id >= 1 && id <= ALL_SETTING_KEYS.len(), "id={}", id);
         ALL_SETTING_KEYS[id - 1].clone()
     }
 }
