@@ -126,6 +126,19 @@ fn receive_coroutine_continuation<R>(
 where R: 'static + Send + AsyncRead {
     let task = read_frame(socket_in, conn)
         .and_then(|(socket_in, conn, frame)| {
+            match frame {
+                Frame::Settings(ref f) => {
+                    if !f.ack {
+                        debug!("ack a SETTINGS_FRAME");
+                        let whole: &mut Settings = &mut conn.remote_h2_settings.lock().unwrap();
+                        for (key, val) in &f.values {
+                            whole.set(key.clone(), *val);
+                        }
+                        send_frame(conn.sender_queue.clone(), Frame::Settings(SettingsFrame::new(true, vec!())));
+                    }
+                },
+                _ => {},
+            }
             {
                 let f = &conn.on_frame.0;
                 f(conn.clone(), frame);
@@ -177,6 +190,17 @@ fn read_settings<R: 'static + Send + AsyncRead>(
 ) -> impl Future<Item = (R, Arc<Connection>), Error = io::Error> {
     read_frame(socket_in, conn)
         .and_then(|(socket_in, conn, frame)| {
+            match frame {
+                Frame::Settings(ref f) => {
+                    debug!("ack a SETTINGS_FRAME");
+                    let whole: &mut Settings = &mut conn.remote_h2_settings.lock().unwrap();
+                    for (key, val) in &f.values {
+                        whole.set(key.clone(), *val);
+                    }
+                    send_frame(conn.sender_queue.clone(), Frame::Settings(SettingsFrame::new(true, vec!())));
+                },
+                _ => {unreachable!()},
+            }
             {
                 let f = &conn.on_frame.0;
                 f(conn.clone(), frame);

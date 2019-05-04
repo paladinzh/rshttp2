@@ -104,8 +104,8 @@ impl HeadersFrame {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct SettingsFrame {
-    ack: bool,
-    values: Vec<(SettingKey, u32)>,
+    pub ack: bool,
+    pub values: Vec<(SettingKey, u32)>,
 }
 
 impl SettingsFrame {
