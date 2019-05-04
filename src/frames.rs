@@ -68,6 +68,7 @@ impl Frame {
     pub fn serialize(&self) -> Vec<u8> {
         match self {
             Frame::Settings(f) => f.serialize(),
+            Frame::GoAway(f) => f.serialize(),
             _ => panic!("unknown frame type: {:?}", self)
         }
     }
@@ -180,12 +181,19 @@ impl SettingsFrame {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct GoAwayFrame {
-    last_stream_id: u32,
-    error_code: ErrorCode,
-    debug_info: Vec<u8>,
+    pub last_stream_id: u32,
+    pub error_code: ErrorCode,
+    pub debug_info: Vec<u8>,
 }
 
 impl GoAwayFrame {
+    fn new() -> GoAwayFrame {
+        GoAwayFrame{
+            last_stream_id: 0,
+            error_code: ErrorCode::NoError,
+            debug_info: vec!()}
+    }
+
     fn parse(
         header: &FrameHeader,
         body: Vec<u8>,
@@ -198,19 +206,33 @@ impl GoAwayFrame {
                 "a GOAWAY frame can only be applied to the whole connection."));
         }
 
-        let mut frame = GoAwayFrame{
-            last_stream_id: 0,
-            error_code: ErrorCode::NoError,
-            debug_info: vec!(),
-        };
-
-        let (buf, last_stream_id) = parse_uint::<u32>(body.as_slice(), 4);
-        frame.last_stream_id = last_stream_id;
-        let (buf, ec) = parse_uint::<usize>(buf, 4);
-        frame.error_code = ErrorCode::from_h2_id(ec);
-        frame.debug_info = buf.to_vec();
-
+        let mut frame = GoAwayFrame::new();
+        {
+            let (buf, last_stream_id) = parse_uint::<u32>(body.as_slice(), 4);
+            frame.last_stream_id = last_stream_id;
+            let (buf, ec) = parse_uint::<usize>(buf, 4);
+            frame.error_code = ErrorCode::from_h2_id(ec);
+            frame.debug_info = buf.to_vec();
+        }
         Ok(frame)
+    }
+
+    fn serialize(&self) -> Vec<u8> {
+        let mut buf = vec!();
+
+        {
+            let h = FrameHeader{
+                body_len: 0,
+                frame_type: 7,
+                flags: 0,
+                stream_id: 0};
+            h.serialize(&mut buf);
+        }
+        serialize_uint(&mut buf, self.last_stream_id, 4);
+        serialize_uint(&mut buf, self.error_code.to_h2_id() as u32, 4);
+        buf.extend(self.debug_info.iter());
+        
+        buf
     }
 }
 
@@ -244,3 +266,37 @@ fn test_settingsframe_serde() {
     }
 }
 
+fn randomized_vec<T: Eq + Clone>(alphabet: &[T], terminator: T) -> Vec<T> {
+    let mut rng = random::default();
+    let len = alphabet.len();
+    let mut out = vec!();
+    loop {
+        let x = alphabet[(rng.read_u64() as usize) % len].clone();
+        if x == terminator {
+            break;
+        }
+        out.push(x);
+    }
+    out
+}
+
+#[test]
+fn test_goawayframe_serde() {
+    let mut rng = random::default();
+    for _ in 0..1000 {
+        let mut f = GoAwayFrame::new();
+        f.last_stream_id = rng.read_u64() as u32;
+        f.error_code = ErrorCode::from_h2_id((rng.read_u64() as usize) % ALL_ERRORS.len());
+        f.debug_info = randomized_vec("abcdefghijklmn.".as_bytes(), '.' as u8);
+
+        let f_oracle = Frame::GoAway(f);
+        let mut buf = f_oracle.serialize();
+        let header = FrameHeader::parse(&buf[0..9]);
+        let buf = buf.split_off(9);
+        let f_trial = Frame::parse(&header, buf);
+        match f_trial {
+            Ok(f_trial) => assert_eq!(f_trial, f_oracle),
+            Err(err) => assert!(false, "{:?}", err),
+        }
+    }
+}
