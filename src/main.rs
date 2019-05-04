@@ -17,7 +17,7 @@ fn listen_on(addr: &SocketAddr) -> impl Future<Item=(), Error=()> {
                 sender_queue_size: 100,
                 my_h2_settings: vec!((SettingKey::MaxConcurrentStreams, 123)),
             };
-            let _ = handshake(cfg, conn, |conn, frame| {
+            let _ = handshake(cfg, conn, |_conn, frame| {
                 info!("got a frame: {:?}", frame);
             });
             Ok(())

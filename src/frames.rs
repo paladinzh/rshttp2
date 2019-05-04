@@ -85,8 +85,8 @@ pub struct HeadersFrame {
 
 impl HeadersFrame {
     fn parse(
-        header: &FrameHeader,
-        body: Vec<u8>,
+        _header: &FrameHeader,
+        _body: Vec<u8>,
     ) -> Result<HeadersFrame, io::Error> {
         let frame = HeadersFrame{
             end_stream: false,
@@ -237,66 +237,69 @@ impl GoAwayFrame {
 }
 
 #[cfg(test)]
-use random::default;
-use random::Source;
+mod test {
+    use random::Source;
+    use super::*;
 
-#[test]
-fn test_settingsframe_serde() {
-    let mut rng = random::default();
-    for _ in 0..1000 {
-        let ack = if (rng.read_u64() & 1) > 0 {true} else {false};
-        let mut values = vec!();
+    #[test]
+    fn test_settingsframe_serde() {
+        let mut rng = random::default();
+        for _ in 0..1000 {
+            let ack = if (rng.read_u64() & 1) > 0 {true} else {false};
+            let mut values = vec!();
+            loop {
+                let rnd = (rng.read_u64() as usize) % (ALL_SETTING_KEYS.len() + 1);
+                if rnd == 0 {
+                    break;
+                }
+                values.push((SettingKey::from_h2_id(rnd), 0x12345678u32));
+            }
+
+            let f_oracle = Frame::Settings(SettingsFrame::new(ack, values));
+            let mut buf = f_oracle.serialize();
+            let header = FrameHeader::parse(&buf[0..9]);
+            let buf = buf.split_off(9);
+            let f_trial = Frame::parse(&header, buf);
+            match f_trial {
+                Ok(f_trial) => assert_eq!(f_trial, f_oracle),
+                Err(err) => assert!(false, "{:?}", err),
+            }
+        }
+    }
+
+    fn randomized_vec<T: Eq + Clone>(alphabet: &[T], terminator: T) -> Vec<T> {
+        let mut rng = random::default();
+        let len = alphabet.len();
+        let mut out = vec!();
         loop {
-            let rnd = (rng.read_u64() as usize) % (ALL_SETTING_KEYS.len() + 1);
-            if rnd == 0 {
+            let x = alphabet[(rng.read_u64() as usize) % len].clone();
+            if x == terminator {
                 break;
             }
-            values.push((SettingKey::from_h2_id(rnd), 0x12345678u32));
+            out.push(x);
         }
+        out
+    }
 
-        let f_oracle = Frame::Settings(SettingsFrame::new(ack, values));
-        let mut buf = f_oracle.serialize();
-        let header = FrameHeader::parse(&buf[0..9]);
-        let buf = buf.split_off(9);
-        let f_trial = Frame::parse(&header, buf);
-        match f_trial {
-            Ok(f_trial) => assert_eq!(f_trial, f_oracle),
-            Err(err) => assert!(false, "{:?}", err),
+    #[test]
+    fn test_goawayframe_serde() {
+        let mut rng = random::default();
+        for _ in 0..1000 {
+            let mut f = GoAwayFrame::new();
+            f.last_stream_id = rng.read_u64() as u32;
+            f.error_code = ErrorCode::from_h2_id((rng.read_u64() as usize) % ALL_ERRORS.len());
+            f.debug_info = randomized_vec("abcdefghijklmn.".as_bytes(), '.' as u8);
+
+            let f_oracle = Frame::GoAway(f);
+            let mut buf = f_oracle.serialize();
+            let header = FrameHeader::parse(&buf[0..9]);
+            let buf = buf.split_off(9);
+            let f_trial = Frame::parse(&header, buf);
+            match f_trial {
+                Ok(f_trial) => assert_eq!(f_trial, f_oracle),
+                Err(err) => assert!(false, "{:?}", err),
+            }
         }
     }
-}
 
-fn randomized_vec<T: Eq + Clone>(alphabet: &[T], terminator: T) -> Vec<T> {
-    let mut rng = random::default();
-    let len = alphabet.len();
-    let mut out = vec!();
-    loop {
-        let x = alphabet[(rng.read_u64() as usize) % len].clone();
-        if x == terminator {
-            break;
-        }
-        out.push(x);
-    }
-    out
-}
-
-#[test]
-fn test_goawayframe_serde() {
-    let mut rng = random::default();
-    for _ in 0..1000 {
-        let mut f = GoAwayFrame::new();
-        f.last_stream_id = rng.read_u64() as u32;
-        f.error_code = ErrorCode::from_h2_id((rng.read_u64() as usize) % ALL_ERRORS.len());
-        f.debug_info = randomized_vec("abcdefghijklmn.".as_bytes(), '.' as u8);
-
-        let f_oracle = Frame::GoAway(f);
-        let mut buf = f_oracle.serialize();
-        let header = FrameHeader::parse(&buf[0..9]);
-        let buf = buf.split_off(9);
-        let f_trial = Frame::parse(&header, buf);
-        match f_trial {
-            Ok(f_trial) => assert_eq!(f_trial, f_oracle),
-            Err(err) => assert!(false, "{:?}", err),
-        }
-    }
 }

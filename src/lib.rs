@@ -1,6 +1,7 @@
 extern crate tokio;
 extern crate futures;
 #[macro_use] extern crate log;
+extern crate base62;
 
 mod parsers;
 mod serializers;
@@ -12,7 +13,7 @@ pub mod error;
 pub use error::*;
 
 mod frames;
-pub use frames::{Frame};
+pub use frames::*;
 
 mod net;
 pub use net::{handshake, Config};

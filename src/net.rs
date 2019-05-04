@@ -1,13 +1,12 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{Ordering, AtomicBool, AtomicU32};
 use std::time::{Duration, Instant};
 use tokio::prelude::*;
 use tokio::io;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use random::default;
 use random::Source;
-use super::frames::*;
-use super::settings::*;
+use super::*;
 
 pub fn handshake<F>(
     cfg: Config,
@@ -15,10 +14,10 @@ pub fn handshake<F>(
     on_frame: F,
 ) -> Result<Arc<Connection>, super::error::Error>
 where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
-    debug!("start to handshake an incoming connection");
     tcp.set_nodelay(true).unwrap();
     let (tx, rx) = channel::<Frame>(cfg.sender_queue_size);
     let mut conn = Connection::new(on_frame, tx);
+    info!("start to handshake an incoming connection {}", base62::encode(conn.id));
     Arc::get_mut(&mut conn).unwrap()
         .update_sender_h2_settings(cfg.my_h2_settings);
     let (input, output) = tcp.split();
@@ -34,10 +33,13 @@ pub struct Config {
 }
 
 pub struct Connection {
+    id: u64,
     on_frame: FnBox,
     sender_queue: Sender<Frame>,
     my_h2_settings: Mutex<Settings>,
     remote_h2_settings: Mutex<Settings>,
+    to_close: AtomicBool,
+    last_received_stream_id: AtomicU32,
 }
 
 struct FnBox(Box<dyn Fn(Arc<Connection>, Frame) -> ()>);
@@ -56,10 +58,13 @@ impl Connection {
     fn new<F>(on_frame: F, sender_queue: Sender<Frame>) -> Arc<Connection>
     where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
         Arc::new(Connection{
+            id: random::default().read_u64(),
             on_frame: FnBox::new(on_frame),
             sender_queue,
             my_h2_settings: Mutex::new(Settings::new()),
-            remote_h2_settings: Mutex::new(Settings::new())})
+            remote_h2_settings: Mutex::new(Settings::new()),
+            to_close: AtomicBool::new(false),
+            last_received_stream_id: AtomicU32::new(0)})
     }
 
     pub fn update_sender_h2_settings(
@@ -76,6 +81,9 @@ impl Connection {
         send_frame(self.sender_queue.clone(), f);
     }
 
+    pub fn disconnect(&mut self) {
+        
+    }
 }
 
 fn send_frame(mut q: Sender<Frame>, f: Frame) {
@@ -124,6 +132,10 @@ fn receive_coroutine_continuation<R>(
     conn: Arc<Connection>,
 ) -> ()
 where R: 'static + Send + AsyncRead {
+    if conn.to_close.load(Ordering::Acquire) {
+        return;
+    }
+    let conn1 = conn.clone();
     let task = read_frame(socket_in, conn)
         .and_then(|(socket_in, conn, frame)| {
             match frame {
@@ -137,7 +149,18 @@ where R: 'static + Send + AsyncRead {
                         send_frame(conn.sender_queue.clone(), Frame::Settings(SettingsFrame::new(true, vec!())));
                     }
                 },
-                _ => {},
+                Frame::GoAway(ref f) => {
+                    info!(
+                        "Close connection {} because of receiving GoAway frame: {:?}",
+                        base62::encode(conn.id),
+                        f);
+                    let f = GoAwayFrame{
+                        last_stream_id: conn.last_received_stream_id.load(Ordering::Acquire),
+                        error_code: ErrorCode::NoError,
+                        debug_info: vec!()};
+                    send_frame(conn.sender_queue.clone(), Frame::GoAway(f));
+                },
+                _ => (),
             }
             {
                 let f = &conn.on_frame.0;
@@ -146,9 +169,16 @@ where R: 'static + Send + AsyncRead {
             receive_coroutine_continuation(socket_in, conn);
             Ok(())
         })
-        .map_err(|err| {
-            error!("Read error: {:?}", err);
-            //TODO: error handling
+        .map_err(move |err| {
+            error!(
+                "Close connection {} because of reading error: {:?}",
+                base62::encode(conn1.id),
+                err);
+            let f = GoAwayFrame{
+                last_stream_id: conn1.last_received_stream_id.load(Ordering::Acquire),
+                error_code: ErrorCode::ConnectError,
+                debug_info: vec!()};
+            send_frame(conn1.sender_queue.clone(), Frame::GoAway(f));
         });
     tokio::spawn(task);
  }
@@ -238,27 +268,50 @@ fn start_send_coroutine<W>(
     conn: Arc<Connection>,
 ) -> ()
 where W: 'static + Send + AsyncWrite {
+    if conn.to_close.load(Ordering::Acquire) {
+        return;
+    }
+    let conn1 = conn.clone();
     let task = rx.into_future()
         .and_then(move |(frame, rx)| {
+            if conn.to_close.load(Ordering::Acquire) {
+                return Ok(());
+            }
             match frame {
                 None => (),
                 Some(frame) => {
+                    match frame {
+                        Frame::GoAway(_) => {
+                            conn.to_close.store(true, Ordering::Release);
+                        },
+                        _ => (),
+                    };
                     debug!("dump a frame {:?}", frame);
                     let buf = frame.serialize();
+                    let conn2 = conn.clone();
                     let task = io::write_all(socket_out, buf)
-                        .and_then(|(socket_out, buf)| {
+                        .and_then(|(socket_out, _buf)| {
                             start_send_coroutine(rx, socket_out, conn);
                             Ok(())
                         })
-                        .map_err(|err| {
-                            info!("Write error: {}", err);
+                        .map_err(move |err| {
+                            info!(
+                                "Close connection {} because of writing error: {:?}",
+                                base62::encode(conn2.id),
+                                err);
+                            conn2.to_close.store(true, Ordering::Release);
                         });
                     tokio::spawn(task);
                 }
             };
             Ok(())
         })
-        .map_err(|err| {
+        .map_err(move |err| {
+            info!(
+                "Close connection {} because of writing error: {:?}",
+                base62::encode(conn1.id),
+                err);
+            conn1.to_close.store(true, Ordering::Release);
         });
     tokio::spawn(task);
 }
