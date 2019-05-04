@@ -34,7 +34,7 @@ impl FrameHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Frame {
     Headers(HeadersFrame), // 1
     Settings(SettingsFrame), // 4
@@ -73,7 +73,7 @@ impl Frame {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct HeadersFrame {
     end_stream: bool,
     end_headers: bool,
@@ -102,7 +102,7 @@ impl HeadersFrame {
 
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct SettingsFrame {
     ack: bool,
     values: Vec<(SettingKey, u32)>,
@@ -170,7 +170,7 @@ impl SettingsFrame {
             h.serialize(&mut buf);
         }
         for (k, v) in &self.values {
-            serialize_uint(&mut buf, k.to_h2_id() as u32, 4);
+            serialize_uint(&mut buf, k.to_h2_id() as u32, 2);
             serialize_uint(&mut buf, *v, 4);
         }
         
@@ -178,7 +178,7 @@ impl SettingsFrame {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct GoAwayFrame {
     last_stream_id: u32,
     error_code: ErrorCode,
@@ -214,4 +214,33 @@ impl GoAwayFrame {
     }
 }
 
+#[cfg(test)]
+use random::default;
+use random::Source;
+
+#[test]
+fn test_settingsframe_serde() {
+    let mut rng = random::default();
+    for _ in 0..1000 {
+        let ack = if (rng.read_u64() & 1) > 0 {true} else {false};
+        let mut values = vec!();
+        loop {
+            let rnd = (rng.read_u64() as usize) % (ALL_SETTING_KEYS.len() + 1);
+            if rnd == 0 {
+                break;
+            }
+            values.push((SettingKey::from_h2_id(rnd), 0x12345678u32));
+        }
+
+        let f_oracle = Frame::Settings(SettingsFrame::new(ack, values));
+        let mut buf = f_oracle.serialize();
+        let header = FrameHeader::parse(&buf[0..9]);
+        let buf = buf.split_off(9);
+        let f_trial = Frame::parse(&header, buf);
+        match f_trial {
+            Ok(f_trial) => assert_eq!(f_trial, f_oracle),
+            Err(err) => assert!(false, "{:?}", err),
+        }
+    }
+}
 

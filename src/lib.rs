@@ -6,6 +6,8 @@ mod parsers;
 mod serializers;
 
 pub mod settings;
+pub use settings::*;
+
 pub mod error;
 
 mod frames;
