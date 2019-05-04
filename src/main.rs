@@ -13,9 +13,14 @@ fn listen_on(addr: &SocketAddr) -> impl Future<Item=(), Error=()> {
     let listener = TcpListener::bind(addr).unwrap();
     listener.incoming()
         .for_each(|conn| {
-            on_connect(conn, |conn, frame| {
+            let cfg = Config{
+                sender_queue_size: 100,
+                my_h2_settings: vec!(),
+            };
+            let _ = handshake(cfg, conn, |conn, frame| {
                 info!("got a frame: {:?}", frame);
-            })
+            });
+            Ok(())
         })
         .map_err(|err| {
             error!("accept error = {:?}", err);

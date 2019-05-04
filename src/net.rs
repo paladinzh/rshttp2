@@ -1,25 +1,43 @@
-use std::sync::{Arc};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::prelude::*;
 use tokio::io;
 use tokio::net::TcpStream;
-use tokio::prelude::*;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use random::default;
+use random::Source;
 use super::frames::*;
+use super::settings::*;
 
-pub fn on_connect<F>(
+pub fn handshake<F>(
+    cfg: Config,
     tcp: TcpStream,
     on_frame: F,
-) -> Result<(), io::Error>
+) -> Result<Arc<Connection>, super::error::Error>
 where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
+    debug!("start to handshake an incoming connection");
     tcp.set_nodelay(true).unwrap();
-    let conn = Connection::new(on_frame);
+    let (tx, rx) = channel::<Frame>(cfg.sender_queue_size);
+    let mut conn = Connection::new(on_frame, tx);
+    Arc::get_mut(&mut conn).unwrap()
+        .update_sender_h2_settings(cfg.my_h2_settings);
     let (input, output) = tcp.split();
-    reader(input, conn.clone());
-    Ok(())
+    start_receive_coroutine(input, conn.clone());
+    start_send_coroutine(rx, output, conn.clone());
+    Ok(conn)
 }
 
-const PREFACE: &str = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+#[derive(Debug)]
+pub struct Config {
+    pub sender_queue_size: usize,
+    pub my_h2_settings: Vec<(SettingKey, u32)>,
+}
 
 pub struct Connection {
     on_frame: FnBox,
+    sender_queue: Sender<Frame>,
+    my_h2_settings: Mutex<Settings>,
+    remote_h2_settings: Mutex<Settings>,
 }
 
 struct FnBox(Box<dyn Fn(Arc<Connection>, Frame) -> ()>);
@@ -34,27 +52,65 @@ impl FnBox {
     }
 }
 
-
 impl Connection {
-    fn new<F>(on_frame: F) -> Arc<Connection>
+    fn new<F>(on_frame: F, sender_queue: Sender<Frame>) -> Arc<Connection>
     where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
         Arc::new(Connection{
-            on_frame: FnBox::new(on_frame)})
+            on_frame: FnBox::new(on_frame),
+            sender_queue,
+            my_h2_settings: Mutex::new(Settings::new()),
+            remote_h2_settings: Mutex::new(Settings::new())})
+    }
+
+    pub fn update_sender_h2_settings(
+        &mut self,
+        new_values: Vec<(SettingKey, u32)>,
+    ) -> () {
+        {
+            let whole: &mut Settings = &mut self.my_h2_settings.lock().unwrap();
+            for (key, val) in &new_values {
+                whole.set(key.clone(), *val);
+            }
+        }
+        let f = Frame::Settings(SettingsFrame::new(false, new_values));
+        send_frame(self.sender_queue.clone(), f);
+    }
+
+}
+
+fn send_frame(mut q: Sender<Frame>, f: Frame) {
+    let res = q.try_send(f);
+    match res {
+        Ok(_) => (),
+        Err(err) => {
+            let f = err.into_inner();
+            let mut rng = random::default();
+            let delay = Duration::from_millis(rng.read_u64() % 30);
+            let wakeup = Instant::now() + delay;
+            let task = tokio::timer::Delay::new(wakeup)
+                .map_err(|e| panic!("timer failed; err={:?}", e))
+                .and_then(move |_| {
+                    send_frame(q, f);
+                    Ok(())
+                });
+            tokio::spawn(task);
+        }
     }
 }
 
-fn reader<R>(
+const PREFACE: &str = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
+fn start_receive_coroutine<R>(
     socket_in: R,
     conn: Arc<Connection>,
 ) -> ()
 where R: 'static + Send + AsyncRead {
-    debug!("start to handshake an incoming connection");
     let task = read_preface(socket_in, conn)
         .and_then(|(socket_in, conn)| {
             read_settings(socket_in, conn)
         })
         .and_then(|(socket_in, conn)| {
-            reader_continuation(socket_in, conn);
+            receive_coroutine_continuation(socket_in, conn);
             Ok(())
         })
         .map_err(|err| {
@@ -63,7 +119,7 @@ where R: 'static + Send + AsyncRead {
     tokio::spawn(task);
 }
 
-fn reader_continuation<R>(
+fn receive_coroutine_continuation<R>(
     socket_in: R,
     conn: Arc<Connection>,
 ) -> ()
@@ -74,7 +130,7 @@ where R: 'static + Send + AsyncRead {
                 let f = &conn.on_frame.0;
                 f(conn.clone(), frame);
             }
-            reader_continuation(socket_in, conn);
+            receive_coroutine_continuation(socket_in, conn);
             Ok(())
         })
         .map_err(|err| {
@@ -137,18 +193,49 @@ fn read_frame<R: 'static + Send + AsyncRead>(
     io::read_exact(socket_in, buf)
         .and_then(|(socket_in, buf)| {
             let buf: &[u8] = &buf;
-            let frame_header = parse_header(buf);
+            let frame_header = FrameHeader::parse(buf);
             let mut body = Vec::<u8>::with_capacity(frame_header.body_len);
             body.resize(frame_header.body_len, 0);
             io::read_exact(socket_in, body)
                 .and_then(move |(socket_in, body)| {
                     debug!("succeed to read payload of a frame with {} bytes", body.len());
-                    let frame = parse_frame(&frame_header, body);
+                    let frame = Frame::parse(&frame_header, body);
                     match frame {
                         Ok(f) => Ok((socket_in, conn, f)),
                         Err(err) => Err(err),
                     }
                 })
         })
+}
+
+fn start_send_coroutine<W>(
+    rx: Receiver<Frame>,
+    socket_out: W,
+    conn: Arc<Connection>,
+) -> ()
+where W: 'static + Send + AsyncWrite {
+    let task = rx.into_future()
+        .and_then(move |(frame, rx)| {
+            match frame {
+                None => (),
+                Some(frame) => {
+                    debug!("dump a frame {:?}", frame);
+                    let buf = frame.serialize();
+                    let task = io::write_all(socket_out, buf)
+                        .and_then(|(socket_out, buf)| {
+                            start_send_coroutine(rx, socket_out, conn);
+                            Ok(())
+                        })
+                        .map_err(|err| {
+                            info!("Write error: {}", err);
+                        });
+                    tokio::spawn(task);
+                }
+            };
+            Ok(())
+        })
+        .map_err(|err| {
+        });
+    tokio::spawn(task);
 }
 
