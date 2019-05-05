@@ -35,7 +35,7 @@ pub struct Config {
 pub struct Connection {
     id: u64,
     on_frame: FnBox,
-    sender_queue: Sender<Frame>,
+    sender: Sender<Frame>,
     my_h2_settings: Mutex<Settings>,
     remote_h2_settings: Mutex<Settings>,
     to_close: AtomicBool,
@@ -55,12 +55,12 @@ impl FnBox {
 }
 
 impl Connection {
-    fn new<F>(on_frame: F, sender_queue: Sender<Frame>) -> Arc<Connection>
+    fn new<F>(on_frame: F, sender: Sender<Frame>) -> Arc<Connection>
     where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
         Arc::new(Connection{
             id: random::default().read_u64(),
             on_frame: FnBox::new(on_frame),
-            sender_queue,
+            sender,
             my_h2_settings: Mutex::new(Settings::new()),
             remote_h2_settings: Mutex::new(Settings::new()),
             to_close: AtomicBool::new(false),
@@ -78,7 +78,7 @@ impl Connection {
             }
         }
         let f = Frame::Settings(SettingsFrame::new(false, new_values));
-        send_frame(self.sender_queue.clone(), f);
+        send_frame(self.sender.clone(), f);
     }
 
     pub fn disconnect(&mut self) {
@@ -146,7 +146,7 @@ where R: 'static + Send + AsyncRead {
                         for (key, val) in &f.values {
                             whole.set(key.clone(), *val);
                         }
-                        send_frame(conn.sender_queue.clone(), Frame::Settings(SettingsFrame::new(true, vec!())));
+                        send_frame(conn.sender.clone(), Frame::Settings(SettingsFrame::new(true, vec!())));
                     }
                 },
                 Frame::GoAway(ref f) => {
@@ -158,7 +158,7 @@ where R: 'static + Send + AsyncRead {
                         last_stream_id: conn.last_received_stream_id.load(Ordering::Acquire),
                         error_code: ErrorCode::NoError,
                         debug_info: vec!()};
-                    send_frame(conn.sender_queue.clone(), Frame::GoAway(f));
+                    send_frame(conn.sender.clone(), Frame::GoAway(f));
                 },
                 _ => (),
             }
@@ -178,7 +178,7 @@ where R: 'static + Send + AsyncRead {
                 last_stream_id: conn1.last_received_stream_id.load(Ordering::Acquire),
                 error_code: ErrorCode::ConnectError,
                 debug_info: vec!()};
-            send_frame(conn1.sender_queue.clone(), Frame::GoAway(f));
+            send_frame(conn1.sender.clone(), Frame::GoAway(f));
         });
     tokio::spawn(task);
  }
@@ -227,7 +227,7 @@ fn read_settings<R: 'static + Send + AsyncRead>(
                     for (key, val) in &f.values {
                         whole.set(key.clone(), *val);
                     }
-                    send_frame(conn.sender_queue.clone(), Frame::Settings(SettingsFrame::new(true, vec!())));
+                    send_frame(conn.sender.clone(), Frame::Settings(SettingsFrame::new(true, vec!())));
                 },
                 _ => {unreachable!()},
             }
