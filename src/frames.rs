@@ -1,8 +1,6 @@
-use tokio::io;
+use super::*;
 use super::parsers::*;
 use super::serializers::*;
-use super::error::*;
-use super::settings::*;
 
 #[derive(Debug)]
 pub struct FrameHeader {
@@ -45,7 +43,7 @@ impl Frame {
     pub fn parse(
         header: &FrameHeader,
         body: Vec<u8>,
-    ) -> Result<Frame, io::Error> {
+    ) -> Result<Frame, Error> {
         match header.frame_type {
             1 => {
                 let f = HeadersFrame::parse(header, body)?;
@@ -59,8 +57,9 @@ impl Frame {
                 let f = GoAwayFrame::parse(header, body)?;
                 Ok(Frame::GoAway(f))
             }
-            _ => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
+            _ => Err(Error::new(
+                ErrorLevel::ConnectionLevel,
+                ErrorCode::ProtocolError,
                 format!("unknown frame type: {}", header.frame_type)))
         }
     }
@@ -93,7 +92,14 @@ impl HeadersFrame {
     fn parse(
         header: &FrameHeader,
         body: Vec<u8>,
-    ) -> Result<HeadersFrame, io::Error> {
+    ) -> Result<HeadersFrame, Error> {
+        if header.stream_id == 0 {
+            return Err(Error::new(
+                ErrorLevel::ConnectionLevel,
+                ErrorCode::ProtocolError,
+                "HeadersFrame associates with stream 0.".to_string()));
+        }
+
         let mut frame = HeadersFrame{
             end_stream: false,
             end_headers: false,
@@ -136,9 +142,10 @@ impl HeadersFrame {
         }
 
         if pad_len > body.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "shortage of body length."));
+            return Err(Error::new(
+                ErrorLevel::ConnectionLevel,
+                ErrorCode::ProtocolError,
+                "Too long padding.".to_string()));
         }
 
         {
@@ -171,19 +178,21 @@ impl SettingsFrame {
     fn parse(
         header: &FrameHeader,
         body: Vec<u8>,
-    ) -> Result<SettingsFrame, io::Error> {
+    ) -> Result<SettingsFrame, Error> {
         assert!(header.frame_type == 4);
 
         if header.stream_id != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "a SETTINGS frame can only be applied to the whole connection."));
+            return Err(Error::new(
+                ErrorLevel::ConnectionLevel,
+                ErrorCode::ProtocolError,
+                "a SETTINGS frame can only be applied to the whole connection.".to_string()));
         }
 
         if body.len() % 6 != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "body length of a SETTINGS frame must be a multiple of 6 octets."));
+            return Err(Error::new(
+                ErrorLevel::ConnectionLevel,
+                ErrorCode::ProtocolError,
+                "body length of a SETTINGS frame must be a multiple of 6 octets.".to_string()));
         }
         
         let mut settings = SettingsFrame{
@@ -241,20 +250,21 @@ impl GoAwayFrame {
     fn new() -> GoAwayFrame {
         GoAwayFrame{
             last_stream_id: 0,
-            error_code: ErrorCode::NoError,
+            error_code: error::ErrorCode::NoError,
             debug_info: vec!()}
     }
 
     fn parse(
         header: &FrameHeader,
         body: Vec<u8>,
-    ) -> Result<GoAwayFrame, io::Error> {
+    ) -> Result<GoAwayFrame, Error> {
         assert!(header.frame_type == 7);
 
         if header.stream_id != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "a GOAWAY frame can only be applied to the whole connection."));
+            return Err(Error::new(
+                ErrorLevel::ConnectionLevel,
+                ErrorCode::ProtocolError,
+                "a GOAWAY frame can only be applied to the whole connection.".to_string()));
         }
 
         let mut frame = GoAwayFrame::new();

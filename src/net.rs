@@ -186,25 +186,27 @@ where R: 'static + Send + AsyncRead {
 fn read_preface<R: 'static + Send + AsyncRead>(
     socket_in: R,
     conn: Arc<Connection>,
-) -> impl Future<Item = (R, Arc<Connection>), Error = io::Error> {
+) -> impl Future<Item = (R, Arc<Connection>), Error = Error> {
     let buf = [0u8; 24];
     io::read_exact(socket_in, buf)
         .then(move |result| {
             match result {
                 Err(err) => {
                     error!("fail to read HTTP/2 preface: {:?}", err);
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "fail to read HTTP/2 preface"));
+                    return Err(Error::new(
+                        ErrorLevel::ConnectionLevel,
+                        ErrorCode::ProtocolError,
+                        "fail to read HTTP/2 preface".to_string()));
                 },
                 Ok((socket_in, buf)) => {
                     if buf != PREFACE.as_bytes() {
                         error!("HTTP/2 preface mismatch: expect {:?} got {:?}",
                                PREFACE.as_bytes(),
                                buf);
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "HTTP/2 preface mismatch"));
+                        return Err(Error::new(
+                            ErrorLevel::ConnectionLevel,
+                            ErrorCode::ProtocolError,
+                            "HTTP/2 preface mismatch".to_string()));
                     } else {
                         debug!("read HTTP/2 preface");
                         return Ok((socket_in, conn));
@@ -217,7 +219,7 @@ fn read_preface<R: 'static + Send + AsyncRead>(
 fn read_settings<R: 'static + Send + AsyncRead>(
     socket_in: R,
     conn: Arc<Connection>,
-) -> impl Future<Item = (R, Arc<Connection>), Error = io::Error> {
+) -> impl Future<Item = (R, Arc<Connection>), Error = Error> {
     read_frame(socket_in, conn)
         .and_then(|(socket_in, conn, frame)| {
             match frame {
@@ -242,15 +244,35 @@ fn read_settings<R: 'static + Send + AsyncRead>(
 fn read_frame<R: 'static + Send + AsyncRead>(
     socket_in: R,
     conn: Arc<Connection>,
-) -> impl Future<Item = (R, Arc<Connection>, Frame), Error = io::Error> {
+) -> impl Future<Item = (R, Arc<Connection>, Frame), Error = Error> {
     let buf = [0u8; 9];
+    let conn1 = conn.clone();
     io::read_exact(socket_in, buf)
+        .map_err(move |err| {
+            info!("fail to read connection {} because {:?}",
+                  base62::encode(conn1.id),
+                  err);
+            Error::new(
+                error::ErrorLevel::ConnectionLevel,
+                error::ErrorCode::ConnectError,
+                format!("fail to read on connection {}", base62::encode(conn1.id)))
+        })
         .and_then(|(socket_in, buf)| {
             let buf: &[u8] = &buf;
             let frame_header = FrameHeader::parse(buf);
             let mut body = Vec::<u8>::with_capacity(frame_header.body_len);
             body.resize(frame_header.body_len, 0);
+            let conn1 = conn.clone();
             io::read_exact(socket_in, body)
+                .map_err(move |err| {
+                    info!("fail to read connection {} because {:?}",
+                          base62::encode(conn1.id),
+                          err);
+                    Error::new(
+                        error::ErrorLevel::ConnectionLevel,
+                        error::ErrorCode::ConnectError,
+                        format!("fail to read on connection {}", conn1.id))
+                })
                 .and_then(move |(socket_in, body)| {
                     debug!("succeed to read payload of a frame with {} bytes", body.len());
                     let frame = Frame::parse(&frame_header, body);
