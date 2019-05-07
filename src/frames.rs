@@ -58,8 +58,8 @@ impl Frame {
                 Ok(Frame::GoAway(f))
             }
             _ => Err(Error::new(
-                ErrorLevel::ConnectionLevel,
-                ErrorCode::ProtocolError,
+                error::Level::ConnectionLevel,
+                error::Code::ProtocolError,
                 format!("unknown frame type: {}", header.frame_type)))
         }
     }
@@ -95,8 +95,8 @@ impl HeadersFrame {
     ) -> Result<HeadersFrame, Error> {
         if header.stream_id == 0 {
             return Err(Error::new(
-                ErrorLevel::ConnectionLevel,
-                ErrorCode::ProtocolError,
+                error::Level::ConnectionLevel,
+                error::Code::ProtocolError,
                 "HeadersFrame associates with stream 0.".to_string()));
         }
 
@@ -143,8 +143,8 @@ impl HeadersFrame {
 
         if pad_len > body.len() {
             return Err(Error::new(
-                ErrorLevel::ConnectionLevel,
-                ErrorCode::ProtocolError,
+                error::Level::ConnectionLevel,
+                error::Code::ProtocolError,
                 "Too long padding.".to_string()));
         }
 
@@ -183,15 +183,15 @@ impl SettingsFrame {
 
         if header.stream_id != 0 {
             return Err(Error::new(
-                ErrorLevel::ConnectionLevel,
-                ErrorCode::ProtocolError,
+                error::Level::ConnectionLevel,
+                error::Code::ProtocolError,
                 "a SETTINGS frame can only be applied to the whole connection.".to_string()));
         }
 
         if body.len() % 6 != 0 {
             return Err(Error::new(
-                ErrorLevel::ConnectionLevel,
-                ErrorCode::ProtocolError,
+                error::Level::ConnectionLevel,
+                error::Code::ProtocolError,
                 "body length of a SETTINGS frame must be a multiple of 6 octets.".to_string()));
         }
         
@@ -242,7 +242,7 @@ impl SettingsFrame {
 #[derive(Debug, Eq, PartialEq)]
 pub struct GoAwayFrame {
     pub last_stream_id: u32,
-    pub error_code: ErrorCode,
+    pub error_code: error::Code,
     pub debug_info: Vec<u8>,
 }
 
@@ -250,7 +250,7 @@ impl GoAwayFrame {
     fn new() -> GoAwayFrame {
         GoAwayFrame{
             last_stream_id: 0,
-            error_code: error::ErrorCode::NoError,
+            error_code: error::Code::NoError,
             debug_info: vec!()}
     }
 
@@ -262,8 +262,8 @@ impl GoAwayFrame {
 
         if header.stream_id != 0 {
             return Err(Error::new(
-                ErrorLevel::ConnectionLevel,
-                ErrorCode::ProtocolError,
+                error::Level::ConnectionLevel,
+                error::Code::ProtocolError,
                 "a GOAWAY frame can only be applied to the whole connection.".to_string()));
         }
 
@@ -272,7 +272,7 @@ impl GoAwayFrame {
             let (buf, last_stream_id) = parse_uint::<u32>(body.as_slice(), 4);
             frame.last_stream_id = last_stream_id;
             let (buf, ec) = parse_uint::<usize>(buf, 4);
-            frame.error_code = ErrorCode::from_h2_id(ec);
+            frame.error_code = error::Code::from_h2_id(ec);
             frame.debug_info = buf.to_vec();
         }
         Ok(frame)
@@ -348,7 +348,7 @@ mod test {
         for _ in 0..1000 {
             let mut f = GoAwayFrame::new();
             f.last_stream_id = rng.read_u64() as u32;
-            f.error_code = ErrorCode::from_h2_id((rng.read_u64() as usize) % ALL_ERRORS.len());
+            f.error_code = error::Code::from_h2_id((rng.read_u64() as usize) % ALL_ERRORS.len());
             f.debug_info = randomized_vec("abcdefghijklmn.".as_bytes(), '.' as u8);
 
             let f_oracle = Frame::GoAway(f);

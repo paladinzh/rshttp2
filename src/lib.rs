@@ -10,7 +10,7 @@ pub mod settings;
 pub use settings::*;
 
 pub mod error;
-pub use error::*;
+pub use error::Error;
 
 mod frames;
 pub use frames::*;

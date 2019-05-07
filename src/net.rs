@@ -52,7 +52,7 @@ where R: 'static + Send + AsyncRead {
                 err);
             let f = GoAwayFrame{
                 last_stream_id: conn1.get_last_received_stream_id(),
-                error_code: ErrorCode::ConnectError,
+                error_code: error::Code::ConnectError,
                 debug_info: vec!()};
             conn1.send_frame(Frame::GoAway(f));
         });
@@ -84,7 +84,7 @@ where R: 'static + Send + AsyncRead {
                         f);
                     let f = GoAwayFrame{
                         last_stream_id: conn.get_last_received_stream_id(),
-                        error_code: ErrorCode::NoError,
+                        error_code: error::Code::NoError,
                         debug_info: vec!()};
                     conn.send_frame(Frame::GoAway(f));
                 },
@@ -101,7 +101,7 @@ where R: 'static + Send + AsyncRead {
                 err);
             let f = GoAwayFrame{
                 last_stream_id: conn1.get_last_received_stream_id(),
-                error_code: ErrorCode::ConnectError,
+                error_code: error::Code::ConnectError,
                 debug_info: vec!()};
             conn1.send_frame(Frame::GoAway(f));
         });
@@ -119,8 +119,8 @@ fn read_preface<R: 'static + Send + AsyncRead>(
                 Err(err) => {
                     error!("fail to read HTTP/2 preface: {:?}", err);
                     return Err(Error::new(
-                        ErrorLevel::ConnectionLevel,
-                        ErrorCode::ProtocolError,
+                        error::Level::ConnectionLevel,
+                        error::Code::ProtocolError,
                         "fail to read HTTP/2 preface".to_string()));
                 },
                 Ok((socket_in, buf)) => {
@@ -129,8 +129,8 @@ fn read_preface<R: 'static + Send + AsyncRead>(
                                PREFACE.as_bytes(),
                                buf);
                         return Err(Error::new(
-                            ErrorLevel::ConnectionLevel,
-                            ErrorCode::ProtocolError,
+                            error::Level::ConnectionLevel,
+                            error::Code::ProtocolError,
                             "HTTP/2 preface mismatch".to_string()));
                     } else {
                         debug!("read HTTP/2 preface");
@@ -171,8 +171,8 @@ fn read_frame<R: 'static + Send + AsyncRead>(
                   conn1.encoded_id(),
                   err);
             Error::new(
-                error::ErrorLevel::ConnectionLevel,
-                error::ErrorCode::ConnectError,
+                error::Level::ConnectionLevel,
+                error::Code::ConnectError,
                 format!("fail to read on connection {}", conn1.encoded_id()))
         })
         .and_then(|(socket_in, buf)| {
@@ -187,8 +187,8 @@ fn read_frame<R: 'static + Send + AsyncRead>(
                           conn1.encoded_id(),
                           err);
                     Error::new(
-                        error::ErrorLevel::ConnectionLevel,
-                        error::ErrorCode::ConnectError,
+                        error::Level::ConnectionLevel,
+                        error::Code::ConnectError,
                         format!("fail to read on connection {}", conn1.encoded_id()))
                 })
                 .and_then(move |(socket_in, body)| {
