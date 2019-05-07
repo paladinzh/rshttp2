@@ -1,11 +1,8 @@
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{Ordering, AtomicBool, AtomicU32};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 use tokio::prelude::*;
 use tokio::io;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use random::Source;
+use tokio::sync::mpsc::{channel, Receiver};
 use super::*;
 
 pub fn handshake<F>(
@@ -17,7 +14,7 @@ where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
     tcp.set_nodelay(true).unwrap();
     let (tx, rx) = channel::<Frame>(cfg.sender_queue_size);
     let mut conn = Connection::new(on_frame, tx);
-    info!("start to handshake an incoming connection {}", base62::encode(conn.id));
+    info!("start to handshake an incoming connection {}", conn.encoded_id());
     Arc::get_mut(&mut conn).unwrap()
         .update_sender_h2_settings(cfg.my_h2_settings);
     let (input, output) = tcp.split();
@@ -32,80 +29,6 @@ pub struct Config {
     pub my_h2_settings: Vec<(SettingKey, u32)>,
 }
 
-pub struct Connection {
-    id: u64,
-    on_frame: FnBox,
-    sender: Sender<Frame>,
-    my_h2_settings: Mutex<Settings>,
-    remote_h2_settings: Mutex<Settings>,
-    to_close: AtomicBool,
-    last_received_stream_id: AtomicU32,
-}
-
-struct FnBox(Box<dyn Fn(Arc<Connection>, Frame) -> ()>);
-
-unsafe impl Send for FnBox {}
-unsafe impl Sync for FnBox {}
-
-impl FnBox {
-    fn new<F>(f: F) -> FnBox
-    where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
-        FnBox(Box::new(f))
-    }
-}
-
-impl Connection {
-    fn new<F>(on_frame: F, sender: Sender<Frame>) -> Arc<Connection>
-    where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
-        Arc::new(Connection{
-            id: random::default().read_u64(),
-            on_frame: FnBox::new(on_frame),
-            sender,
-            my_h2_settings: Mutex::new(Settings::new()),
-            remote_h2_settings: Mutex::new(Settings::new()),
-            to_close: AtomicBool::new(false),
-            last_received_stream_id: AtomicU32::new(0)})
-    }
-
-    pub fn update_sender_h2_settings(
-        &mut self,
-        new_values: Vec<(SettingKey, u32)>,
-    ) -> () {
-        {
-            let whole: &mut Settings = &mut self.my_h2_settings.lock().unwrap();
-            for (key, val) in &new_values {
-                whole.set(key.clone(), *val);
-            }
-        }
-        let f = Frame::Settings(SettingsFrame::new(false, new_values));
-        send_frame(self.sender.clone(), f);
-    }
-
-    pub fn disconnect(&mut self) {
-        
-    }
-}
-
-fn send_frame(mut q: Sender<Frame>, f: Frame) {
-    let res = q.try_send(f);
-    match res {
-        Ok(_) => (),
-        Err(err) => {
-            let f = err.into_inner();
-            let mut rng = random::default();
-            let delay = Duration::from_millis(rng.read_u64() % 30);
-            let wakeup = Instant::now() + delay;
-            let task = tokio::timer::Delay::new(wakeup)
-                .map_err(|e| panic!("timer failed; err={:?}", e))
-                .and_then(move |_| {
-                    send_frame(q, f);
-                    Ok(())
-                });
-            tokio::spawn(task);
-        }
-    }
-}
-
 const PREFACE: &str = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 fn start_receive_coroutine<R>(
@@ -113,6 +36,7 @@ fn start_receive_coroutine<R>(
     conn: Arc<Connection>,
 ) -> ()
 where R: 'static + Send + AsyncRead {
+    let conn1 = conn.clone();
     let task = read_preface(socket_in, conn)
         .and_then(|(socket_in, conn)| {
             read_settings(socket_in, conn)
@@ -121,8 +45,16 @@ where R: 'static + Send + AsyncRead {
             receive_coroutine_continuation(socket_in, conn);
             Ok(())
         })
-        .map_err(|err| {
-            error!("Read error: {:?}", err);
+        .map_err(move |err| {
+            error!(
+                "Close connection {} during handshaking because of reading error: {:?}",
+                conn1.encoded_id(),
+                err);
+            let f = GoAwayFrame{
+                last_stream_id: conn1.get_last_received_stream_id(),
+                error_code: ErrorCode::ConnectError,
+                debug_info: vec!()};
+            conn1.send_frame(Frame::GoAway(f));
         });
     tokio::spawn(task);
 }
@@ -132,7 +64,7 @@ fn receive_coroutine_continuation<R>(
     conn: Arc<Connection>,
 ) -> ()
 where R: 'static + Send + AsyncRead {
-    if conn.to_close.load(Ordering::Acquire) {
+    if conn.is_closing() {
         return;
     }
     let conn1 = conn.clone();
@@ -142,43 +74,36 @@ where R: 'static + Send + AsyncRead {
                 Frame::Settings(ref f) => {
                     if !f.ack {
                         debug!("ack a SETTINGS_FRAME");
-                        let whole: &mut Settings = &mut conn.remote_h2_settings.lock().unwrap();
-                        for (key, val) in &f.values {
-                            whole.set(key.clone(), *val);
-                        }
-                        send_frame(conn.sender.clone(), Frame::Settings(SettingsFrame::new(true, vec!())));
+                        conn.update_remote_h2_settings(&f.values);
                     }
                 },
                 Frame::GoAway(ref f) => {
                     info!(
                         "Close connection {} because of receiving GoAway frame: {:?}",
-                        base62::encode(conn.id),
+                        conn.encoded_id(),
                         f);
                     let f = GoAwayFrame{
-                        last_stream_id: conn.last_received_stream_id.load(Ordering::Acquire),
+                        last_stream_id: conn.get_last_received_stream_id(),
                         error_code: ErrorCode::NoError,
                         debug_info: vec!()};
-                    send_frame(conn.sender.clone(), Frame::GoAway(f));
+                    conn.send_frame(Frame::GoAway(f));
                 },
                 _ => (),
             }
-            {
-                let f = &conn.on_frame.0;
-                f(conn.clone(), frame);
-            }
+            Connection::trigger_user_callback(&conn, frame);
             receive_coroutine_continuation(socket_in, conn);
             Ok(())
         })
         .map_err(move |err| {
             error!(
                 "Close connection {} because of reading error: {:?}",
-                base62::encode(conn1.id),
+                conn1.encoded_id(),
                 err);
             let f = GoAwayFrame{
-                last_stream_id: conn1.last_received_stream_id.load(Ordering::Acquire),
+                last_stream_id: conn1.get_last_received_stream_id(),
                 error_code: ErrorCode::ConnectError,
                 debug_info: vec!()};
-            send_frame(conn1.sender.clone(), Frame::GoAway(f));
+            conn1.send_frame(Frame::GoAway(f));
         });
     tokio::spawn(task);
  }
@@ -225,18 +150,11 @@ fn read_settings<R: 'static + Send + AsyncRead>(
             match frame {
                 Frame::Settings(ref f) => {
                     debug!("ack a SETTINGS_FRAME");
-                    let whole: &mut Settings = &mut conn.remote_h2_settings.lock().unwrap();
-                    for (key, val) in &f.values {
-                        whole.set(key.clone(), *val);
-                    }
-                    send_frame(conn.sender.clone(), Frame::Settings(SettingsFrame::new(true, vec!())));
+                    conn.update_remote_h2_settings(&f.values);
                 },
                 _ => {unreachable!()},
             }
-            {
-                let f = &conn.on_frame.0;
-                f(conn.clone(), frame);
-            }
+            Connection::trigger_user_callback(&conn, frame);
             Ok((socket_in, conn))
         })
 }
@@ -250,12 +168,12 @@ fn read_frame<R: 'static + Send + AsyncRead>(
     io::read_exact(socket_in, buf)
         .map_err(move |err| {
             info!("fail to read connection {} because {:?}",
-                  base62::encode(conn1.id),
+                  conn1.encoded_id(),
                   err);
             Error::new(
                 error::ErrorLevel::ConnectionLevel,
                 error::ErrorCode::ConnectError,
-                format!("fail to read on connection {}", base62::encode(conn1.id)))
+                format!("fail to read on connection {}", conn1.encoded_id()))
         })
         .and_then(|(socket_in, buf)| {
             let buf: &[u8] = &buf;
@@ -266,12 +184,12 @@ fn read_frame<R: 'static + Send + AsyncRead>(
             io::read_exact(socket_in, body)
                 .map_err(move |err| {
                     info!("fail to read connection {} because {:?}",
-                          base62::encode(conn1.id),
+                          conn1.encoded_id(),
                           err);
                     Error::new(
                         error::ErrorLevel::ConnectionLevel,
                         error::ErrorCode::ConnectError,
-                        format!("fail to read on connection {}", conn1.id))
+                        format!("fail to read on connection {}", conn1.encoded_id()))
                 })
                 .and_then(move |(socket_in, body)| {
                     debug!("succeed to read payload of a frame with {} bytes", body.len());
@@ -290,13 +208,13 @@ fn start_send_coroutine<W>(
     conn: Arc<Connection>,
 ) -> ()
 where W: 'static + Send + AsyncWrite {
-    if conn.to_close.load(Ordering::Acquire) {
+    if conn.is_closing() {
         return;
     }
     let conn1 = conn.clone();
     let task = rx.into_future()
         .and_then(move |(frame, rx)| {
-            if conn.to_close.load(Ordering::Acquire) {
+            if conn.is_closing() {
                 return Ok(());
             }
             match frame {
@@ -304,7 +222,7 @@ where W: 'static + Send + AsyncWrite {
                 Some(frame) => {
                     match frame {
                         Frame::GoAway(_) => {
-                            conn.to_close.store(true, Ordering::Release);
+                            conn.async_disconnect();
                         },
                         _ => (),
                     };
@@ -319,9 +237,9 @@ where W: 'static + Send + AsyncWrite {
                         .map_err(move |err| {
                             info!(
                                 "Close connection {} because of writing error: {:?}",
-                                base62::encode(conn2.id),
+                                conn2.encoded_id(),
                                 err);
-                            conn2.to_close.store(true, Ordering::Release);
+                            conn2.async_disconnect();
                         });
                     tokio::spawn(task);
                 }
@@ -331,9 +249,9 @@ where W: 'static + Send + AsyncWrite {
         .map_err(move |err| {
             info!(
                 "Close connection {} because of writing error: {:?}",
-                base62::encode(conn1.id),
+                conn1.encoded_id(),
                 err);
-            conn1.to_close.store(true, Ordering::Release);
+            conn1.async_disconnect();
         });
     tokio::spawn(task);
 }

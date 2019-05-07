@@ -17,3 +17,7 @@ pub use frames::*;
 
 mod net;
 pub use net::{handshake, Config};
+
+mod connection;
+pub use connection::Connection;
+
