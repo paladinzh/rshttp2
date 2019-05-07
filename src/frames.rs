@@ -78,26 +78,77 @@ impl Frame {
 pub struct HeadersFrame {
     end_stream: bool,
     end_headers: bool,
-    padded: bool,
-    prioritized: bool,
-    headers: Vec<u8>,
+    header_block: Vec<u8>,
+    padding: Option<Vec<u8>>,
+    priority: Option<PriorityInHeadersFrame>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct PriorityInHeadersFrame {
+    weight: u8,
+    dependency_stream: u32,
 }
 
 impl HeadersFrame {
     fn parse(
-        _header: &FrameHeader,
-        _body: Vec<u8>,
+        header: &FrameHeader,
+        body: Vec<u8>,
     ) -> Result<HeadersFrame, io::Error> {
-        let frame = HeadersFrame{
+        let mut frame = HeadersFrame{
             end_stream: false,
             end_headers: false,
-            padded: false,
-            prioritized: false,
-            headers: vec!(),
+            header_block: vec!(),
+            padding: None,
+            priority: None,
         };
 
-        // TODO:
+        if (header.flags & 0x1) > 0 {
+            frame.end_stream = true;
+        }
+        if (header.flags & 0x4) > 0 {
+            frame.end_headers = true;
+        }
+        let mut padded = false;
+        if (header.flags & 0x8) > 0 {
+            padded = true;
+        }
+        let mut prioritized = false;
+        if (header.flags & 0x20) > 0 {
+            prioritized = true;
+        }
 
+        let mut body: &[u8] = body.as_slice();
+
+        let mut pad_len = 0usize;
+        if padded {
+            let (buf, len) = parse_uint::<u8>(body, 1);
+            body = buf;
+            pad_len = len as usize;
+        }
+
+        if prioritized {
+            let (buf, sid) = parse_uint::<u32>(body, 4);
+            let (buf, weight) = parse_uint::<u8>(buf, 1);
+            body = buf;
+            frame.priority = Some(PriorityInHeadersFrame{
+                weight,
+                dependency_stream: sid});
+        }
+
+        if pad_len > body.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "shortage of body length."));
+        }
+
+        {
+            let (head, tail) = body.split_at(body.len() - pad_len);
+            frame.header_block = head.to_vec();
+            if padded {
+                frame.padding = Some(tail.to_vec());
+            }
+        }
+        
         Ok(frame)
     }
 
