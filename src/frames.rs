@@ -35,6 +35,7 @@ impl FrameHeader {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Frame {
     Headers(HeadersFrame), // 1
+    Priority(PriorityFrame), // 2
     Settings(SettingsFrame), // 4
     GoAway(GoAwayFrame), // 7
 }
@@ -49,6 +50,10 @@ impl Frame {
                 let f = HeadersFrame::parse(header, body)?;
                 Ok(Frame::Headers(f))
             },
+            2 => {
+                let f = PriorityFrame::parse(header, body)?;
+                Ok(Frame::Priority(f))
+            }
             4 => {
                 let f = SettingsFrame::parse(header, body)?;
                 Ok(Frame::Settings(f))
@@ -159,6 +164,55 @@ impl HeadersFrame {
         Ok(frame)
     }
 
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct PriorityFrame {
+    my_stream_id: u32,
+    dep_stream_id: u32,
+    weight: i64,
+}
+
+impl PriorityFrame {
+    pub fn new(
+        my_stream_id: u32,
+        dep_stream_id: u32,
+        weight: i64
+    ) -> PriorityFrame {
+        PriorityFrame{
+            my_stream_id,
+            dep_stream_id,
+            weight,
+        }
+    }
+
+    fn parse(
+        header: &FrameHeader,
+        body: Vec<u8>,
+    ) -> Result<PriorityFrame, Error> {
+        if header.stream_id == 0 {
+            return Err(Error::new(
+                error::Level::ConnectionLevel,
+                error::Code::ProtocolError,
+                "PriorityFrame must be associated with a stream".to_string()));
+        }
+
+        if body.len() != 5 {
+            return Err(Error::new(
+                error::Level::StreamLevel,
+                error::Code::FrameSizeError,
+                "PriorityFrame must has a body of length 5.".to_string()));
+        }
+
+        let body: &[u8] = body.as_slice();
+        let (body, dep_stream_id) = parse_uint::<u32>(body, 4);
+        let (_, weight) = parse_uint::<u8>(body, 1);
+
+        Ok(PriorityFrame::new(
+            header.stream_id,
+            dep_stream_id,
+            weight as i64))
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
