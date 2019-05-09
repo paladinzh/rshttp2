@@ -80,6 +80,86 @@ pub fn serialize_uint(
     Ok(())
 }
 
+struct StaticTableItem {
+    name: &'static str,
+    value: Option<&'static str>,
+}
+
+const RAW_STATIC_TABLE: [StaticTableItem; 62] = [
+    StaticTableItem{name: "", value: None},
+
+    StaticTableItem{name: ":authority", value: None},
+    StaticTableItem{name: ":method", value: Some("GET")},
+    StaticTableItem{name: ":method", value: Some("POST")},
+    StaticTableItem{name: ":path", value: Some("/")},
+    StaticTableItem{name: ":path", value: Some("/index.html")},
+    StaticTableItem{name: ":scheme", value: Some("http")},
+    StaticTableItem{name: ":scheme", value: Some("https")},
+    StaticTableItem{name: ":status", value: Some("200")},
+    StaticTableItem{name: ":status", value: Some("204")},
+    StaticTableItem{name: ":status", value: Some("206")},
+    StaticTableItem{name: ":status", value: Some("304")},
+    StaticTableItem{name: ":status", value: Some("400")},
+    StaticTableItem{name: ":status", value: Some("404")},
+    StaticTableItem{name: ":status", value: Some("500")},
+
+    StaticTableItem{name: "accept-charset", value: None},
+    StaticTableItem{name: "accept-encoding", value: Some("gzip, deflate")},
+    StaticTableItem{name: "accept-language", value: None},
+    StaticTableItem{name: "accept-ranges", value: None},
+    StaticTableItem{name: "accept", value: None},
+    StaticTableItem{name: "access-control-allow-origin", value: None},
+    StaticTableItem{name: "age", value: None},
+    StaticTableItem{name: "allow", value: None},
+    StaticTableItem{name: "authorization", value: None},
+
+    StaticTableItem{name: "cache-control", value: None},
+    StaticTableItem{name: "content-disposition", value: None},
+    StaticTableItem{name: "content-encoding", value: None},
+    StaticTableItem{name: "content-language", value: None},
+    StaticTableItem{name: "content-length", value: None},
+    StaticTableItem{name: "content-location", value: None},
+    StaticTableItem{name: "content-range", value: None},
+    StaticTableItem{name: "content-type", value: None},
+    StaticTableItem{name: "cookie", value: None},
+
+    StaticTableItem{name: "date", value: None},
+    StaticTableItem{name: "etag", value: None},
+    StaticTableItem{name: "expect", value: None},
+    StaticTableItem{name: "expires", value: None},
+    StaticTableItem{name: "from", value: None},
+    StaticTableItem{name: "host", value: None},
+
+    StaticTableItem{name: "if-match", value: None},
+    StaticTableItem{name: "if-modified-since", value: None},
+    StaticTableItem{name: "if-none-match", value: None},
+    StaticTableItem{name: "if-range", value: None},
+    StaticTableItem{name: "if-unmodified-since", value: None},
+
+    StaticTableItem{name: "last-modified", value: None},
+    StaticTableItem{name: "link", value: None},
+    StaticTableItem{name: "location", value: None},
+
+    StaticTableItem{name: "max-forwards", value: None},
+    StaticTableItem{name: "proxy-authenticate", value: None},
+    StaticTableItem{name: "proxy-authorization", value: None},
+
+    StaticTableItem{name: "range", value: None},
+    StaticTableItem{name: "referer", value: None},
+    StaticTableItem{name: "refresh", value: None},
+    StaticTableItem{name: "retry-after", value: None},
+
+    StaticTableItem{name: "server", value: None},
+    StaticTableItem{name: "set-cookie", value: None},
+    StaticTableItem{name: "strict-transport-security", value: None},
+
+    StaticTableItem{name: "transfer-encoding", value: None},
+    StaticTableItem{name: "user-agent", value: None},
+    StaticTableItem{name: "vary", value: None},
+    StaticTableItem{name: "via", value: None},
+    StaticTableItem{name: "www-authenticate", value: None},
+];
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -164,7 +244,6 @@ mod test {
     fn test_serialize_parse_uint_exhaustive() {
         for prefix_bits in 1usize..9usize {
             for oracle_value in 0u64..2000u64 {
-                const LEN: usize = 10;
                 let mut buf = vec!();
                 let _ = serialize_uint(&mut buf, oracle_value, prefix_bits, 0)
                     .unwrap();
