@@ -10,7 +10,7 @@ pub mod settings;
 pub use settings::*;
 
 pub mod error;
-pub use error::Error;
+pub use error::{Error, ALL_ERRORS};
 
 mod frames;
 pub use frames::*;
@@ -21,3 +21,4 @@ pub use net::{handshake, Config};
 mod connection;
 pub use connection::Connection;
 
+mod hpack;
