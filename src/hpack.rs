@@ -1,4 +1,18 @@
-pub fn parse_uint(
+use std::collections::BTreeMap;
+
+pub struct Context {
+    static_table_seeker: StaticTableSeeker,
+}
+
+impl Context {
+    pub fn new() -> Context {
+        Context{
+            static_table_seeker: StaticTableSeeker::new()}
+    }
+}
+
+
+fn parse_uint(
     b: *const u8,
     e: *const u8,
     prefix_bits: usize,
@@ -43,7 +57,7 @@ pub fn parse_uint(
     Ok((b, res))
 }
 
-pub fn serialize_uint(
+fn serialize_uint(
     buf: &mut Vec<u8>,
     v: u64,
     prefix_bits: usize,
@@ -80,85 +94,156 @@ pub fn serialize_uint(
     Ok(())
 }
 
+#[derive(Debug)]
 struct StaticTableItem {
-    name: &'static str,
-    value: Option<&'static str>,
+    name: &'static [u8],
+    value: Option<&'static [u8]>,
 }
 
 const RAW_STATIC_TABLE: [StaticTableItem; 62] = [
-    StaticTableItem{name: "", value: None},
+    StaticTableItem{name: b"", value: None},
 
-    StaticTableItem{name: ":authority", value: None},
-    StaticTableItem{name: ":method", value: Some("GET")},
-    StaticTableItem{name: ":method", value: Some("POST")},
-    StaticTableItem{name: ":path", value: Some("/")},
-    StaticTableItem{name: ":path", value: Some("/index.html")},
-    StaticTableItem{name: ":scheme", value: Some("http")},
-    StaticTableItem{name: ":scheme", value: Some("https")},
-    StaticTableItem{name: ":status", value: Some("200")},
-    StaticTableItem{name: ":status", value: Some("204")},
-    StaticTableItem{name: ":status", value: Some("206")},
-    StaticTableItem{name: ":status", value: Some("304")},
-    StaticTableItem{name: ":status", value: Some("400")},
-    StaticTableItem{name: ":status", value: Some("404")},
-    StaticTableItem{name: ":status", value: Some("500")},
+    StaticTableItem{name: b":authority", value: None},
+    StaticTableItem{name: b":method", value: Some(b"GET")},
+    StaticTableItem{name: b":method", value: Some(b"POST")},
+    StaticTableItem{name: b":path", value: Some(b"/")},
+    StaticTableItem{name: b":path", value: Some(b"/index.html")},
 
-    StaticTableItem{name: "accept-charset", value: None},
-    StaticTableItem{name: "accept-encoding", value: Some("gzip, deflate")},
-    StaticTableItem{name: "accept-language", value: None},
-    StaticTableItem{name: "accept-ranges", value: None},
-    StaticTableItem{name: "accept", value: None},
-    StaticTableItem{name: "access-control-allow-origin", value: None},
-    StaticTableItem{name: "age", value: None},
-    StaticTableItem{name: "allow", value: None},
-    StaticTableItem{name: "authorization", value: None},
+    StaticTableItem{name: b":scheme", value: Some(b"http")},
+    StaticTableItem{name: b":scheme", value: Some(b"https")},
+    StaticTableItem{name: b":status", value: Some(b"200")},
+    StaticTableItem{name: b":status", value: Some(b"204")},
+    StaticTableItem{name: b":status", value: Some(b"206")},
+    StaticTableItem{name: b":status", value: Some(b"304")},
+    StaticTableItem{name: b":status", value: Some(b"400")},
+    StaticTableItem{name: b":status", value: Some(b"404")},
+    StaticTableItem{name: b":status", value: Some(b"500")},
 
-    StaticTableItem{name: "cache-control", value: None},
-    StaticTableItem{name: "content-disposition", value: None},
-    StaticTableItem{name: "content-encoding", value: None},
-    StaticTableItem{name: "content-language", value: None},
-    StaticTableItem{name: "content-length", value: None},
-    StaticTableItem{name: "content-location", value: None},
-    StaticTableItem{name: "content-range", value: None},
-    StaticTableItem{name: "content-type", value: None},
-    StaticTableItem{name: "cookie", value: None},
+    StaticTableItem{name: b"accept-charset", value: None},
+    StaticTableItem{name: b"accept-encoding", value: Some(b"gzip, deflate")},
+    StaticTableItem{name: b"accept-language", value: None},
+    StaticTableItem{name: b"accept-ranges", value: None},
+    StaticTableItem{name: b"accept", value: None},
+    StaticTableItem{name: b"access-control-allow-origin", value: None},
+    StaticTableItem{name: b"age", value: None},
+    StaticTableItem{name: b"allow", value: None},
+    StaticTableItem{name: b"authorization", value: None},
 
-    StaticTableItem{name: "date", value: None},
-    StaticTableItem{name: "etag", value: None},
-    StaticTableItem{name: "expect", value: None},
-    StaticTableItem{name: "expires", value: None},
-    StaticTableItem{name: "from", value: None},
-    StaticTableItem{name: "host", value: None},
+    StaticTableItem{name: b"cache-control", value: None},
+    StaticTableItem{name: b"content-disposition", value: None},
+    StaticTableItem{name: b"content-encoding", value: None},
+    StaticTableItem{name: b"content-language", value: None},
+    StaticTableItem{name: b"content-length", value: None},
+    StaticTableItem{name: b"content-location", value: None},
+    StaticTableItem{name: b"content-range", value: None},
+    StaticTableItem{name: b"content-type", value: None},
+    StaticTableItem{name: b"cookie", value: None},
 
-    StaticTableItem{name: "if-match", value: None},
-    StaticTableItem{name: "if-modified-since", value: None},
-    StaticTableItem{name: "if-none-match", value: None},
-    StaticTableItem{name: "if-range", value: None},
-    StaticTableItem{name: "if-unmodified-since", value: None},
+    StaticTableItem{name: b"date", value: None},
+    StaticTableItem{name: b"etag", value: None},
+    StaticTableItem{name: b"expect", value: None},
+    StaticTableItem{name: b"expires", value: None},
+    StaticTableItem{name: b"from", value: None},
+    StaticTableItem{name: b"host", value: None},
 
-    StaticTableItem{name: "last-modified", value: None},
-    StaticTableItem{name: "link", value: None},
-    StaticTableItem{name: "location", value: None},
+    StaticTableItem{name: b"if-match", value: None},
+    StaticTableItem{name: b"if-modified-since", value: None},
+    StaticTableItem{name: b"if-none-match", value: None},
+    StaticTableItem{name: b"if-range", value: None},
+    StaticTableItem{name: b"if-unmodified-since", value: None},
 
-    StaticTableItem{name: "max-forwards", value: None},
-    StaticTableItem{name: "proxy-authenticate", value: None},
-    StaticTableItem{name: "proxy-authorization", value: None},
+    StaticTableItem{name: b"last-modified", value: None},
+    StaticTableItem{name: b"link", value: None},
+    StaticTableItem{name: b"location", value: None},
 
-    StaticTableItem{name: "range", value: None},
-    StaticTableItem{name: "referer", value: None},
-    StaticTableItem{name: "refresh", value: None},
-    StaticTableItem{name: "retry-after", value: None},
+    StaticTableItem{name: b"max-forwards", value: None},
+    StaticTableItem{name: b"proxy-authenticate", value: None},
+    StaticTableItem{name: b"proxy-authorization", value: None},
 
-    StaticTableItem{name: "server", value: None},
-    StaticTableItem{name: "set-cookie", value: None},
-    StaticTableItem{name: "strict-transport-security", value: None},
+    StaticTableItem{name: b"range", value: None},
+    StaticTableItem{name: b"referer", value: None},
+    StaticTableItem{name: b"refresh", value: None},
+    StaticTableItem{name: b"retry-after", value: None},
 
-    StaticTableItem{name: "transfer-encoding", value: None},
-    StaticTableItem{name: "user-agent", value: None},
-    StaticTableItem{name: "vary", value: None},
-    StaticTableItem{name: "via", value: None},
-    StaticTableItem{name: "www-authenticate", value: None},
+    StaticTableItem{name: b"server", value: None},
+    StaticTableItem{name: b"set-cookie", value: None},
+    StaticTableItem{name: b"strict-transport-security", value: None},
+
+    StaticTableItem{name: b"transfer-encoding", value: None},
+    StaticTableItem{name: b"user-agent", value: None},
+    StaticTableItem{name: b"vary", value: None},
+    StaticTableItem{name: b"via", value: None},
+    StaticTableItem{name: b"www-authenticate", value: None},
 ];
+
+mod details {
+    use super::BTreeMap;
+
+    pub type HeaderIndexMap = BTreeMap<&'static [u8], usize>;
+    pub type SizedHeaderIndexMap = BTreeMap<usize, HeaderIndexMap>;
+
+    pub type ValueIndexMap = BTreeMap<&'static [u8], usize>;
+    pub type HeaderValueIndexMap = BTreeMap<&'static [u8], ValueIndexMap>;
+    pub type SizedHeaderValueIndexMap = BTreeMap<usize, HeaderValueIndexMap>;
+}
+
+struct StaticTableSeeker {
+    full_headers: details::SizedHeaderValueIndexMap,
+    no_value_headers: details::SizedHeaderIndexMap,
+}
+
+impl StaticTableSeeker {
+    fn new() -> StaticTableSeeker {
+        let mut res = StaticTableSeeker{
+            full_headers: details::SizedHeaderValueIndexMap::new(),
+            no_value_headers: details::SizedHeaderIndexMap::new()};
+        for idx in 1..RAW_STATIC_TABLE.len() {
+            let name = RAW_STATIC_TABLE[idx].name;
+            let value = RAW_STATIC_TABLE[idx].value;
+            match value {
+                Some(value) => {
+                    let r = res.full_headers
+                        .entry(name.len())
+                        .or_insert(details::HeaderValueIndexMap::new())
+                        .entry(name)
+                        .or_insert(details::ValueIndexMap::new())
+                        .insert(value, idx);
+                    assert!(r.is_none());
+                },
+                None => {
+                    let r = res.no_value_headers
+                        .entry(name.len())
+                        .or_insert(details::HeaderIndexMap::new())
+                        .insert(name, idx);
+                    assert!(r.is_none());
+                }
+            };
+        }
+        res
+    }
+
+    fn seek(&self, header: &[u8], value: &[u8]) -> Option<usize> {
+        let res = self.seek_in_no_value_headers(header);
+        if res.is_some() {
+            return res;
+        }
+
+        self.seek_in_full_headers(header, value)
+    }
+
+    fn seek_in_no_value_headers(&self, header: &[u8]) -> Option<usize> {
+        let header_idx_map = self.no_value_headers.get(&header.len())?;
+        let idx = header_idx_map.get(header)?;
+        Some(*idx)
+    }
+
+    fn seek_in_full_headers(&self, header: &[u8], value: &[u8]) -> Option<usize> {
+        let header_value_idx_map = self.full_headers.get(&header.len())?;
+        let value_idx_map = header_value_idx_map.get(header)?;
+        let idx = value_idx_map.get(value)?;
+        Some(*idx)
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -257,5 +342,37 @@ mod test {
                 assert_eq!(b, e);
             }
         }
+    }
+
+    #[test]
+    fn test_static_table_seeker_exhaustive() {
+        let seeker = StaticTableSeeker::new();
+        let none = b"";
+        
+        for oracle_idx in 1..RAW_STATIC_TABLE.len() {
+            let header = RAW_STATIC_TABLE[oracle_idx].name;
+            let value = RAW_STATIC_TABLE[oracle_idx].value;
+
+            let trial_idx = match value {
+                Some(ref v) => seeker.seek(header, v),
+                None => seeker.seek(header, none),
+            };
+
+            assert_eq!(trial_idx, Some(oracle_idx));
+        }
+    }
+
+    #[test]
+    fn test_static_table_seeker_nonexist_header() {
+        let seeker = StaticTableSeeker::new();
+        let res = seeker.seek(b"NOT_EXIST", b"WHATEVER");
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_static_table_seeker_nonexist_value () {
+        let seeker = StaticTableSeeker::new();
+        let res = seeker.seek(b":status", b"NOT_EXIST");
+        assert!(res.is_none());
     }
 }
