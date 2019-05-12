@@ -1,6 +1,9 @@
 mod static_table;
 use static_table::*;
 
+mod huffman;
+mod huffman_codes;
+
 pub struct Context {
     static_table_seeker: static_table::Seeker,
 }
@@ -135,15 +138,8 @@ fn parse_string(
         if e1 > e {
             return Err("shortage of buf on deserialization.");
         }
-        decode_huffman(b, e1)
+        huffman::decode(b, e1)
     }
-}
-
-fn decode_huffman(
-    b: *const u8,
-    e: *const u8,
-) -> Result<(*const u8, Vec<u8>), &'static str> {
-    Ok((b, vec!()))
 }
 
 #[cfg(test)]
