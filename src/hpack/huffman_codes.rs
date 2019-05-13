@@ -5,8 +5,8 @@ use std::marker::PhantomPinned;
 
 #[derive(Debug)]
 pub struct Item {
-    lsb: u32,
-    bits: usize,
+    pub lsb: u32,
+    pub bits: usize,
 }
 
 pub struct HuffmanTree {

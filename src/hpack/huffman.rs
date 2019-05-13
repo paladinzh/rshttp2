@@ -1,10 +1,11 @@
 use super::huffman_codes::*;
+use super::super::*;
 
 pub fn decode(
     b: *const u8,
     e: *const u8,
 ) -> Result<Vec<u8>, &'static str> {
-    let mut iter = BitIterator::new(b, e);
+    let iter = BitIterator::new(b, e);
     let tree = HuffmanTree::new();
     let mut walker = HuffmanTreeWalker::new(&*tree);
     let mut res = vec!();
@@ -43,6 +44,55 @@ pub fn decode(
         }
     }
     Ok(res)
+}
+
+pub fn encode(
+    out: &mut Vec<u8>,
+    mut b: *const u8,
+    e: *const u8,
+) -> Result<(), Error> {
+    const TOTAL_BITS: usize = 64;
+    const BYTE_WIDTH: usize = 8;
+    let mut remaining_bits = 0usize;
+    let mut buf = 0u64;
+    loop {
+        while remaining_bits >= BYTE_WIDTH {
+            let head = chop_head(&mut buf);
+            out.push(head);
+            remaining_bits -= 8;
+        }
+
+        if b == e {
+            break;
+        }
+
+        let c = unsafe {
+            let c = *b;
+            b = b.add(1);
+            c
+        };
+        let lsb = RAW_TABLE[c as usize].lsb as u64;
+        let bits = RAW_TABLE[c as usize].bits;
+        buf |= lsb << (TOTAL_BITS - remaining_bits - bits);
+        remaining_bits += bits;
+    }
+
+    if remaining_bits > 0 {
+        assert!(remaining_bits < BYTE_WIDTH);
+        let tail = (1u64 << (TOTAL_BITS - remaining_bits)) - 1;
+        buf |= tail;
+        let head = chop_head(&mut buf);
+        out.push(head);
+    }
+
+    Ok(())
+}
+
+fn chop_head(buf: &mut u64) -> u8 {
+    const BYTE_WIDTH: usize = 8;
+    let res = (*buf >> 56) as u8;
+    *buf <<= 8;
+    res
 }
 
 struct BitIterator {
@@ -120,7 +170,7 @@ impl <'a>  HuffmanTreeWalker<'a> {
             }
         };
         let next = unsafe {next.as_ref::<'a>()}.unwrap();
-        match unsafe {next} {
+        match next {
             TreeNode::Leaf(c) => {
                 self.cur_node = self.tree.root;
                 Some(c.clone())
@@ -139,6 +189,7 @@ impl <'a>  HuffmanTreeWalker<'a> {
 
 #[cfg(test)]
 mod test {
+    use random::Source;
     use super::*;
 
     #[test]
@@ -156,7 +207,7 @@ mod test {
         let buf: Vec<u8> = vec!(oracle);
         let b = buf.as_ptr();
         let e = unsafe {b.add(buf.len())};
-        let mut iter = BitIterator::new(b, e);
+        let iter = BitIterator::new(b, e);
         let mut trial = String::new();
         for x in iter {
             trial.push(if x > 0 {'1'} else {'0'});
@@ -171,7 +222,7 @@ mod test {
         let buf: Vec<u8> = vec!(oracle0, oracle1);
         let b = buf.as_ptr();
         let e = unsafe {b.add(buf.len())};
-        let mut iter = BitIterator::new(b, e);
+        let iter = BitIterator::new(b, e);
         let mut trial = String::new();
         for x in iter {
             trial.push(if x > 0 {'1'} else {'0'});
@@ -184,7 +235,7 @@ mod test {
         let buf = vec!(0xF8u8);
         let b = buf.as_ptr();
         let e = unsafe {b.add(buf.len())};
-        let mut iter = BitIterator::new(b, e);
+        let iter = BitIterator::new(b, e);
         let tree = HuffmanTree::new();
         let mut walker = HuffmanTreeWalker::new(&*tree);
         let mut trial: Vec<Char> = vec!();
@@ -205,7 +256,7 @@ mod test {
         let buf = vec!(0x53u8, 0xF8u8);
         let b = buf.as_ptr();
         let e = unsafe {b.add(buf.len())};
-        let mut iter = BitIterator::new(b, e);
+        let iter = BitIterator::new(b, e);
         let tree = HuffmanTree::new();
         let mut walker = HuffmanTreeWalker::new(&*tree);
         let mut trial: Vec<Char> = vec!();
@@ -219,5 +270,67 @@ mod test {
             format!("{:?}", trial),
             "[Normal(32), Normal(33)]");
         assert!(walker.is_root());
+    }
+
+    #[test]
+    fn test_encode_0() {
+        let buf = vec!(38u8);
+        let b = buf.as_ptr();
+        let e = unsafe {b.add(buf.len())};
+        let mut trial: Vec<u8> = vec!();
+        let _ = encode(&mut trial, b, e).unwrap();
+        assert_eq!(trial, [0xF8u8]);
+    }
+
+    #[test]
+    fn test_encode_1() {
+        let buf = vec!(32u8);
+        let b = buf.as_ptr();
+        let e = unsafe {b.add(buf.len())};
+        let mut trial: Vec<u8> = vec!();
+        let _ = encode(&mut trial, b, e).unwrap();
+        assert_eq!(trial, [0x53u8]);
+    }
+
+    #[test]
+    fn test_encode_2() {
+        let buf = vec!(32u8, 33u8);
+        let b = buf.as_ptr();
+        let e = unsafe {b.add(buf.len())};
+        let mut trial: Vec<u8> = vec!();
+        let _ = encode(&mut trial, b, e).unwrap();
+        assert_eq!(trial, [0x53u8, 0xF8u8]);
+    }
+
+
+    fn random_str() -> Vec<u8> {
+        const ALPHABET_SIZE: u64 = 256;
+        let mut rng = random::default();
+        let mut res: Vec<u8> = vec!();
+        loop {
+            let x = rng.read_u64() % (ALPHABET_SIZE + ALPHABET_SIZE / 10);
+            if x >= ALPHABET_SIZE {
+                break;
+            }
+            res.push(x as u8);
+        }
+        res
+    }
+   
+    #[test]
+    fn test_encode_decode_random() {
+        for _ in 0..1000 {
+            let oracle = random_str();
+
+            let b = oracle.as_ptr();
+            let e = unsafe {b.add(oracle.len())};
+            let mut encoded = vec!();
+            let _ = encode(&mut encoded, b, e).unwrap();
+
+            let b = encoded.as_ptr();
+            let e = unsafe {b.add(encoded.len())};
+            let trial = decode(b, e).unwrap();
+            assert_eq!(trial, oracle);
+        }
     }
 }
