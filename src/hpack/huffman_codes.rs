@@ -11,11 +11,11 @@ pub struct Item {
 
 pub struct HuffmanTree {
     nodes: Vec<TreeNode>,
-    root: *const TreeNode,
+    pub root: *const TreeNode,
     _pin: PhantomPinned,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Char {
     Normal(u8),
     EoS,

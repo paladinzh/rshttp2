@@ -138,7 +138,8 @@ fn parse_string(
         if e1 > e {
             return Err("shortage of buf on deserialization.");
         }
-        huffman::decode(b, e1)
+        let res = huffman::decode(b, e1)?;
+        Ok((e1, res))
     }
 }
 
@@ -294,7 +295,7 @@ mod test {
     fn test_parse_huffman_string_1() {
         let buf = vec![
             0x8C, 0xF1, 0xE3, 0xC2, 0xE5,
-            0xF1, 0x2A, 0x6B, 0xA0, 0xAB,
+            0xF2, 0x3A, 0x6B, 0xA0, 0xAB,
             0x90, 0xF4, 0xFF];
         let b = buf.as_ptr();
         let e = unsafe {b.add(buf.len())};
