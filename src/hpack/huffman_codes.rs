@@ -2,6 +2,7 @@
 use std::pin::Pin;
 use std::ptr::null;
 use std::marker::PhantomPinned;
+use once_cell::sync;
 
 #[derive(Debug)]
 pub struct Item {
@@ -14,6 +15,16 @@ pub struct HuffmanTree {
     pub root: *const TreeNode,
     _pin: PhantomPinned,
 }
+
+// Since we can only get a read-only reference from "HUFFMAN_TREE",
+// which is synced by suitable memory ordering,
+// it is actually safe to consider HuffmanTree as both Send and Sync;
+unsafe impl Send for HuffmanTree {}
+unsafe impl Sync for HuffmanTree {}
+
+pub static HUFFMAN_TREE: sync::Lazy<Pin<Box<HuffmanTree>>> = sync::Lazy::new(|| {
+    HuffmanTree::new()
+});
 
 #[derive(Debug, Clone)]
 pub enum Char {
@@ -43,7 +54,7 @@ unsafe fn set_node_children(
 
 
 impl HuffmanTree {
-    pub fn new() -> Pin<Box<HuffmanTree>> {
+    fn new() -> Pin<Box<HuffmanTree>> {
         let res = HuffmanTree{
             nodes: vec!(),
             root: null(),

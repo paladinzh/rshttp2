@@ -13,3 +13,4 @@ log = "0.4"
 flexi_logger = "0.6"
 random = "0.12"
 base62 = "0.3"
+once_cell = {version = "0.2", features = []}

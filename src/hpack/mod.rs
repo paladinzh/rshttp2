@@ -102,7 +102,7 @@ fn serialize_raw_string(
     out: &mut Vec<u8>,
     value: &[u8],
 ) -> Result<(), &'static str> {
-    serialize_uint(out, value.len() as u64, 7, 0);
+    let _ = serialize_uint(out, value.len() as u64, 7, 0).unwrap();
     out.extend_from_slice(value);
     Ok(())
 }

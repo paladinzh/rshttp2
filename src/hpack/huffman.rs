@@ -6,8 +6,7 @@ pub fn decode(
     e: *const u8,
 ) -> Result<Vec<u8>, &'static str> {
     let iter = BitIterator::new(b, e);
-    let tree = HuffmanTree::new();
-    let mut walker = HuffmanTreeWalker::new(&*tree);
+    let mut walker = HuffmanTreeWalker::new(&*HUFFMAN_TREE);
     let mut res = vec!();
     for x in iter {
         let c = walker.advance(x);
@@ -236,8 +235,7 @@ mod test {
         let b = buf.as_ptr();
         let e = unsafe {b.add(buf.len())};
         let iter = BitIterator::new(b, e);
-        let tree = HuffmanTree::new();
-        let mut walker = HuffmanTreeWalker::new(&*tree);
+        let mut walker = HuffmanTreeWalker::new(&*HUFFMAN_TREE);
         let mut trial: Vec<Char> = vec!();
         for x in iter {
             let c = walker.advance(x);
@@ -257,8 +255,7 @@ mod test {
         let b = buf.as_ptr();
         let e = unsafe {b.add(buf.len())};
         let iter = BitIterator::new(b, e);
-        let tree = HuffmanTree::new();
-        let mut walker = HuffmanTreeWalker::new(&*tree);
+        let mut walker = HuffmanTreeWalker::new(&*HUFFMAN_TREE);
         let mut trial: Vec<Char> = vec!();
         for x in iter {
             let c = walker.advance(x);

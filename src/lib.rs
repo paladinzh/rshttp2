@@ -2,6 +2,7 @@ extern crate tokio;
 extern crate futures;
 #[macro_use] extern crate log;
 extern crate base62;
+extern crate once_cell;
 
 mod parsers;
 mod serializers;
