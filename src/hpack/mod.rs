@@ -1,6 +1,9 @@
 mod static_table;
 use static_table::*;
 
+mod dynamic_table;
+use dynamic_table::*;
+
 mod huffman;
 mod huffman_codes;
 
