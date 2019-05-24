@@ -111,6 +111,10 @@ impl Seeker {
                         .or_insert(ValueIndexMap::new())
                         .insert(value, idx);
                     assert!(r.is_none());
+                    let r = res.no_value_headers
+                        .entry(name.len())
+                        .or_insert(HeaderIndexMap::new())
+                        .insert(name, idx);
                 },
                 None => {
                     let r = res.no_value_headers
@@ -124,24 +128,15 @@ impl Seeker {
         res
     }
 
-    pub fn seek(&self, header: &[u8], value: &[u8]) -> Option<usize> {
-        let res = self.seek_in_no_value_headers(header);
-        if res.is_some() {
-            return res;
-        }
-
-        self.seek_in_full_headers(header, value)
-    }
-
-    fn seek_in_no_value_headers(&self, header: &[u8]) -> Option<usize> {
-        let header_idx_map = self.no_value_headers.get(&header.len())?;
-        let idx = header_idx_map.get(header)?;
+    pub fn seek_with_name(&self, name: &[u8]) -> Option<usize> {
+        let header_idx_map = self.no_value_headers.get(&name.len())?;
+        let idx = header_idx_map.get(name)?;
         Some(*idx)
     }
 
-    fn seek_in_full_headers(&self, header: &[u8], value: &[u8]) -> Option<usize> {
-        let header_value_idx_map = self.full_headers.get(&header.len())?;
-        let value_idx_map = header_value_idx_map.get(header)?;
+    pub fn seek_with_name_value(&self, name: &[u8], value: &[u8]) -> Option<usize> {
+        let header_value_idx_map = self.full_headers.get(&name.len())?;
+        let value_idx_map = header_value_idx_map.get(name)?;
         let idx = value_idx_map.get(value)?;
         Some(*idx)
     }
@@ -155,15 +150,14 @@ mod test {
     #[test]
     fn test_static_table_seeker_exhaustive() {
         let seeker = Seeker::new();
-        let none = b"";
         
         for oracle_idx in 1..RAW_TABLE.len() {
             let header = RAW_TABLE[oracle_idx].name;
             let value = RAW_TABLE[oracle_idx].value;
 
             let trial_idx = match value {
-                Some(ref v) => seeker.seek(header, v),
-                None => seeker.seek(header, none),
+                Some(ref v) => seeker.seek_with_name_value(header, v),
+                None => seeker.seek_with_name(header),
             };
 
             assert_eq!(trial_idx, Some(oracle_idx));
@@ -173,14 +167,18 @@ mod test {
     #[test]
     fn test_static_table_seeker_nonexist_header() {
         let seeker = Seeker::new();
-        let res = seeker.seek(b"NOT_EXIST", b"WHATEVER");
+        let res = seeker.seek_with_name(b"NOT_EXIST");
+        assert!(res.is_none());
+        let res = seeker.seek_with_name_value(b"NOT_EXIST", b"WHATEVER");
         assert!(res.is_none());
     }
 
     #[test]
     fn test_static_table_seeker_nonexist_value () {
         let seeker = Seeker::new();
-        let res = seeker.seek(b":status", b"NOT_EXIST");
+        let res = seeker.seek_with_name(b":status");
+        assert!(res.is_some());
+        let res = seeker.seek_with_name_value(b":status", b"NOT_EXIST");
         assert!(res.is_none());
     }
 }
