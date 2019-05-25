@@ -1,5 +1,5 @@
 use std::convert::From;
-use std::slice::from_raw_parts;
+use std::slice;
 use std::ops::*;
 
 pub fn parse_uint<'a, T>(buf: &'a [u8], n: usize) -> (&'a [u8], T)
@@ -17,7 +17,7 @@ where T: From<u8> + ShlAssign<usize> + BitOrAssign<T> {
                 res |= T::from(*b);
                 b = b.add(1);
             }
-            (from_raw_parts(b, buf.len() - n), res)
+            (slice::from_raw_parts(b, buf.len() - n), res)
         }
     }
 }

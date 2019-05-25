@@ -1,11 +1,11 @@
 mod static_table;
-use static_table::*;
-
 mod dynamic_table;
-use dynamic_table::*;
-
 mod huffman;
 mod huffman_codes;
+
+use std::slice;
+use static_table::*;
+use dynamic_table::*;
 
 pub struct Context {
     static_table_seeker: static_table::Seeker,
@@ -20,33 +20,36 @@ impl Context {
 
 
 fn parse_uint(
-    b: *const u8,
-    e: *const u8,
+    input: &[u8],
     prefix_bits: usize,
-) -> Result<(*const u8, u64), &'static str> {
-    if b >= e {
+) -> Result<(&[u8], u64), &'static str> {
+    if input.is_empty() {
         return Err("shortage of buf on deserialization.");
     }
 
     let mask = ((1 << prefix_bits) - 1) as u8;
-    let first_byte = unsafe {*b & mask};
-    let mut b = unsafe {b.add(1)};
+    let (first_byte, input) = {
+        let (byte, buf) = input.split_first().unwrap();
+        (byte & mask, buf)
+    };
     if first_byte < mask {
-        return Ok((b, first_byte as u64))
+        return Ok((input, first_byte as u64))
     }
 
+    let mut input = input;
     let mut buf = vec!();
     loop {
-        if b >= e {
+        if input.is_empty() {
             return Err("shortage of buf on deserialization.");
         }
-        let byte = unsafe {*b};
-        b = unsafe {b.add(1)};
+        let (byte, inp) = input.split_first().unwrap();
+        input = inp;
         buf.push(byte & 0x7Fu8);
         if byte & 0x80u8 == 0 {
             break;
         }
     }
+
     let mut res = 0u64;
     loop {
         match buf.pop() {
@@ -61,7 +64,7 @@ fn parse_uint(
     }
     res += mask as u64;
     
-    Ok((b, res))
+    Ok((input, res))
 }
 
 fn serialize_uint(
@@ -110,39 +113,26 @@ fn serialize_raw_string(
     Ok(())
 }
 
-fn parse_string(
-    b: *const u8,
-    e: *const u8,
-) -> Result<(*const u8, Vec<u8>), &'static str> {
-    if b >= e {
+fn parse_string(input: &[u8]) -> Result<(&[u8], Vec<u8>), &'static str> {
+    if input.is_empty() {
         return Err("shortage of buf on deserialization.");
     }
 
-    let byte = unsafe {*b};
-    if (byte & 0x80) == 0 {
-        let (b, len) = parse_uint(b, e, 7)?;
-        let len = len as usize;
-        let mut b = b;
-        if unsafe {b.add(len)} > e {
-            return Err("shortage of buf on deserialization.");
-        }
+    let huffman_encoded = (input[0] & 0x80) == 0;
+    let (buf, len) = parse_uint(input, 7)?;
+    let len = len as usize;
+    if buf.len() < len {
+        return Err("shortage of buf on deserialization.");
+    }
+    let (buf, rem) = buf.split_at(len);
+
+    if huffman_encoded {
         let mut res = Vec::<u8>::with_capacity(len);
-        while b < e {
-            unsafe {
-                res.push(*b);
-                b = b.add(1);
-            }
-        }
-        Ok((b, res))
+        res.extend_from_slice(buf);
+        Ok((rem, res))
     } else {
-        let (b, len) = parse_uint(b, e, 7)?;
-        let len = len as usize;
-        let e1 = unsafe {b.add(len)};
-        if e1 > e {
-            return Err("shortage of buf on deserialization.");
-        }
-        let res = huffman::decode(b, e1)?;
-        Ok((e1, res))
+        let res = huffman::decode(buf)?;
+        Ok((rem, res))
     }
 }
 
@@ -153,48 +143,38 @@ mod test {
     #[test]
     fn test_parse_uint_0() {
         let buf = vec!(0u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let (b, res) = parse_uint(b, e, 5).unwrap();
-        assert_eq!(b, e);
+        let (b, res) = parse_uint(buf.as_slice(), 5).unwrap();
+        assert!(b.is_empty(), "{:?}", b);
         assert_eq!(res, 0);
     }
 
     #[test]
     fn test_parse_uint_1() {
         let buf = vec!(0x0Au8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let (b, res) = parse_uint(b, e, 5).unwrap();
-        assert_eq!(b, e);
+        let (b, res) = parse_uint(buf.as_slice(), 5).unwrap();
+        assert!(b.is_empty(), "{:?}", b);
         assert_eq!(res, 10);
     }
 
     #[test]
     fn test_parse_uint_2() {
         let buf = vec!(31u8, 154u8, 10u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let (b, res) = parse_uint(b, e, 5).unwrap();
-        assert_eq!(b, e);
+        let (b, res) = parse_uint(buf.as_slice(), 5).unwrap();
+        assert!(b.is_empty(), "{:?}", b);
         assert_eq!(res, 1337);
     }
 
     #[test]
     fn test_parse_uint_err0() {
         let buf: Vec<u8> = vec!();
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let err = parse_uint(b, e, 5);
+        let err = parse_uint(buf.as_slice(), 5);
         assert!(err.is_err());
     }
     
     #[test]
     fn test_parse_uint_err1() {
         let buf: Vec<u8> = vec!(31u8, 154u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let err = parse_uint(b, e, 5);
+        let err = parse_uint(buf.as_slice(), 5);
         assert!(err.is_err());
     }
 
@@ -234,13 +214,11 @@ mod test {
                 let _ = serialize_uint(&mut buf, oracle_value, prefix_bits, 0)
                     .unwrap();
 
-                let b = buf.as_ptr();
-                let e = unsafe {b.add(buf.len())};
-                let (b, trial_value) = parse_uint(b, e, prefix_bits)
+                let (b, trial_value) = parse_uint(buf.as_slice(), prefix_bits)
                     .unwrap();
 
                 assert_eq!(trial_value, oracle_value);
-                assert_eq!(b, e);
+                assert!(b.is_empty());
             }
         }
     }
@@ -266,30 +244,24 @@ mod test {
     #[test]
     fn test_parse_raw_string_0() {
         let buf = vec!(0u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let (b, res) = parse_string(b, e).unwrap();
-        assert_eq!(b, e);
+        let (b, res) = parse_string(buf.as_slice()).unwrap();
+        assert!(b.is_empty(), "{:?}", b);
         assert_eq!(res, []);
     }
 
     #[test]
     fn test_parse_raw_string_1() {
         let buf = vec![0x0A, 0x63, 0x75, 0x73, 0x74, 0x6F, 0x6D, 0x2D, 0x6B, 0x65, 0x79];
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let (b, res) = parse_string(b, e).unwrap();
-        assert_eq!(b, e);
+        let (b, res) = parse_string(buf.as_slice()).unwrap();
+        assert!(b.is_empty(), "{:?}", b);
         assert_eq!(res, b"custom-key");
     }
 
     #[test]
     fn test_parse_huffman_string_0() {
         let buf = vec!(0x80u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let (b, res) = parse_string(b, e).unwrap();
-        assert_eq!(b, e);
+        let (b, res) = parse_string(buf.as_slice()).unwrap();
+        assert!(b.is_empty(), "{:?}", b);
         assert_eq!(res, []);
     }
 
@@ -300,10 +272,8 @@ mod test {
             0x8C, 0xF1, 0xE3, 0xC2, 0xE5,
             0xF2, 0x3A, 0x6B, 0xA0, 0xAB,
             0x90, 0xF4, 0xFF];
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let (b, res) = parse_string(b, e).unwrap();
-        assert_eq!(b, e);
+        let (b, res) = parse_string(buf.as_slice()).unwrap();
+        assert!(b.is_empty(), "{:?}", b);
         assert_eq!(res, b"www.example.com");
     }
 

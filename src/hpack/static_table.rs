@@ -111,7 +111,7 @@ impl Seeker {
                         .or_insert(ValueIndexMap::new())
                         .insert(value, idx);
                     assert!(r.is_none());
-                    let r = res.no_value_headers
+                    let _ = res.no_value_headers
                         .entry(name.len())
                         .or_insert(HeaderIndexMap::new())
                         .insert(name, idx);

@@ -2,10 +2,9 @@ use super::huffman_codes::*;
 use super::super::*;
 
 pub fn decode(
-    b: *const u8,
-    e: *const u8,
+    input: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
-    let iter = BitIterator::new(b, e);
+    let iter = BitIterator::new(input);
     let mut walker = HuffmanTreeWalker::new(&*HUFFMAN_TREE);
     let mut res = vec!();
     for x in iter {
@@ -87,58 +86,50 @@ pub fn encode(
     Ok(())
 }
 
+const BYTE_WIDTH: usize = 8;
+
 fn chop_head(buf: &mut u64) -> u8 {
-    const BYTE_WIDTH: usize = 8;
     let res = (*buf >> 56) as u8;
     *buf <<= 8;
     res
 }
 
-struct BitIterator {
-    cur: *const u8,
-    end: *const u8,
+struct BitIterator<'a> {
+    remaining_buf: &'a [u8],
     remaining_bits_in_cur_byte: usize,
     cur_byte: u8,
 }
 
-impl BitIterator {
-    fn new(b: *const u8, e: *const u8) -> BitIterator {
-        unsafe {
-            BitIterator{
-                cur: b,
-                end: e,
-                remaining_bits_in_cur_byte: 8,
-                cur_byte: if b < e {*b} else {0}}
-        }
+impl<'a> BitIterator<'a> {
+    fn new(input: &[u8]) -> BitIterator {
+        BitIterator{
+            remaining_buf: input,
+            remaining_bits_in_cur_byte: 0,
+            cur_byte: 0}
     }
 }
 
-impl Iterator for BitIterator {
+impl<'a> Iterator for BitIterator<'a> {
     type Item = u8;
 
     fn next(&mut self) -> Option<u8> {
-        if self.cur >= self.end {
+        if self.remaining_buf.is_empty() && self.remaining_bits_in_cur_byte == 0 {
             return None
         }
 
+        if self.remaining_bits_in_cur_byte == 0 {
+            assert!(!self.remaining_buf.is_empty());
+            let (byte, buf) = self.remaining_buf.split_first().unwrap();
+            self.cur_byte = *byte;
+            self.remaining_bits_in_cur_byte = BYTE_WIDTH;
+            self.remaining_buf = buf;
+        }
+        
         assert!(self.remaining_bits_in_cur_byte > 0);
 
         let res = self.cur_byte & 0x80;
-
         self.remaining_bits_in_cur_byte -= 1;
-        if self.remaining_bits_in_cur_byte > 0 {
-            self.cur_byte <<= 1;
-        } else {
-            unsafe {
-                self.cur = self.cur.add(1);
-            }
-            if self.cur < self.end {
-                self.cur_byte = unsafe {*self.cur};
-                self.remaining_bits_in_cur_byte = 8;
-            } else {
-                // nothing should do
-            }
-        }
+        self.cur_byte <<= 1;
 
         Some(res)
     }
@@ -194,9 +185,7 @@ mod test {
     #[test]
     fn test_bit_iterator_0() {
         let buf: Vec<u8> = vec!();
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let mut iter = BitIterator::new(b, e);
+        let mut iter = BitIterator::new(buf.as_slice());
         assert_eq!(iter.next(), None);
     }
 
@@ -204,9 +193,7 @@ mod test {
     fn test_bit_iterator_1() {
         let oracle = 0xCCu8;
         let buf: Vec<u8> = vec!(oracle);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let iter = BitIterator::new(b, e);
+        let iter = BitIterator::new(buf.as_slice());
         let mut trial = String::new();
         for x in iter {
             trial.push(if x > 0 {'1'} else {'0'});
@@ -219,9 +206,7 @@ mod test {
         let oracle0 = 0xCCu8;
         let oracle1 = 0x55u8;
         let buf: Vec<u8> = vec!(oracle0, oracle1);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let iter = BitIterator::new(b, e);
+        let iter = BitIterator::new(buf.as_slice());
         let mut trial = String::new();
         for x in iter {
             trial.push(if x > 0 {'1'} else {'0'});
@@ -232,9 +217,7 @@ mod test {
     #[test]
     fn test_huffman_tree_walker_0() {
         let buf = vec!(0xF8u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let iter = BitIterator::new(b, e);
+        let iter = BitIterator::new(buf.as_slice());
         let mut walker = HuffmanTreeWalker::new(&*HUFFMAN_TREE);
         let mut trial: Vec<Char> = vec!();
         for x in iter {
@@ -252,9 +235,7 @@ mod test {
     #[test]
     fn test_huffman_tree_walker_1() {
         let buf = vec!(0x53u8, 0xF8u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
-        let iter = BitIterator::new(b, e);
+        let iter = BitIterator::new(buf.as_slice());
         let mut walker = HuffmanTreeWalker::new(&*HUFFMAN_TREE);
         let mut trial: Vec<Char> = vec!();
         for x in iter {
@@ -324,9 +305,7 @@ mod test {
             let mut encoded = vec!();
             let _ = encode(&mut encoded, b, e).unwrap();
 
-            let b = encoded.as_ptr();
-            let e = unsafe {b.add(encoded.len())};
-            let trial = decode(b, e).unwrap();
+            let trial = decode(encoded.as_slice()).unwrap();
             assert_eq!(trial, oracle);
         }
     }
