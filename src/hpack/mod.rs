@@ -4,8 +4,10 @@ mod huffman;
 mod huffman_codes;
 
 use std::slice;
+use std::ptr;
 use static_table::*;
 use dynamic_table::*;
+use super::*;
 
 pub struct Context {
     static_table_seeker: static_table::Seeker,
@@ -113,7 +115,7 @@ fn serialize_raw_string(
     Ok(())
 }
 
-fn parse_string(input: &[u8]) -> Result<(&[u8], Vec<u8>), &'static str> {
+fn parse_string(input: &[u8]) -> Result<(&[u8], EnhancedSlice), &'static str> {
     if input.is_empty() {
         return Err("shortage of buf on deserialization.");
     }
@@ -127,11 +129,11 @@ fn parse_string(input: &[u8]) -> Result<(&[u8], Vec<u8>), &'static str> {
     let (buf, rem) = buf.split_at(len);
 
     if huffman_encoded {
-        let mut res = Vec::<u8>::with_capacity(len);
-        res.extend_from_slice(buf);
+        let res = EnhancedSlice::new_with_slice(buf);
         Ok((rem, res))
     } else {
-        let res = huffman::decode(buf)?;
+        let buf = huffman::decode(buf)?;
+        let res = EnhancedSlice::new_with_vec(buf);
         Ok((rem, res))
     }
 }
@@ -246,7 +248,7 @@ mod test {
         let buf = vec!(0u8);
         let (b, res) = parse_string(buf.as_slice()).unwrap();
         assert!(b.is_empty(), "{:?}", b);
-        assert_eq!(res, []);
+        assert_eq!(res.as_slice(), []);
     }
 
     #[test]
@@ -254,7 +256,7 @@ mod test {
         let buf = vec![0x0A, 0x63, 0x75, 0x73, 0x74, 0x6F, 0x6D, 0x2D, 0x6B, 0x65, 0x79];
         let (b, res) = parse_string(buf.as_slice()).unwrap();
         assert!(b.is_empty(), "{:?}", b);
-        assert_eq!(res, b"custom-key");
+        assert_eq!(res.as_slice(), b"custom-key");
     }
 
     #[test]
@@ -262,7 +264,7 @@ mod test {
         let buf = vec!(0x80u8);
         let (b, res) = parse_string(buf.as_slice()).unwrap();
         assert!(b.is_empty(), "{:?}", b);
-        assert_eq!(res, []);
+        assert_eq!(res.as_slice(), []);
     }
 
 
@@ -274,7 +276,6 @@ mod test {
             0x90, 0xF4, 0xFF];
         let (b, res) = parse_string(buf.as_slice()).unwrap();
         assert!(b.is_empty(), "{:?}", b);
-        assert_eq!(res, b"www.example.com");
+        assert_eq!(res.as_slice(), b"www.example.com");
     }
-
 }

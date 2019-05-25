@@ -23,3 +23,7 @@ mod connection;
 pub use connection::Connection;
 
 mod hpack;
+
+mod enhanced_slice;
+use enhanced_slice::EnhancedSlice;
+
