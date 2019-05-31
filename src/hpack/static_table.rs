@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct Item {
-    name: &'static [u8],
-    value: Option<&'static [u8]>,
+    pub name: &'static [u8],
+    pub value: Option<&'static [u8]>,
 }
 
 pub const RAW_TABLE: [Item; 62] = [

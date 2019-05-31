@@ -64,9 +64,7 @@ impl DynamicTable {
     pub fn len(&self) -> usize {
         match self.seq_id_range {
             None => 0,
-            Some((s, e)) => {
-                (e - s + 1) as usize
-            }
+            Some((s, e)) => (e - s + 1) as usize,
         }
     }
 
@@ -160,9 +158,9 @@ enum MakeRoomResult {
 
 #[derive(Debug)]
 pub struct Item<'a> {
-    name: &'a [u8],
-    value: Option<&'a [u8]>,
-    index: usize,
+    pub name: &'a [u8],
+    pub value: Option<&'a [u8]>,
+    pub index: usize,
 }
 
 type SeqId = u64;
