@@ -28,7 +28,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_parse_uint_0() {
+    fn parse_uint_0() {
         let buf: [u8; 5] = [1, 2, 3, 4, 5];
         let (remain_buf, res) = parse_uint::<u64>(&buf, 0);
         assert_eq!(res, 0);
@@ -37,7 +37,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_uint_1() {
+    fn parse_uint_1() {
         let buf: [u8; 5] = [1, 2, 3, 4, 5];
         let (remain_buf, res) = parse_uint::<u64>(&buf, 4);
         assert_eq!(res, 0x01020304);
@@ -46,7 +46,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_uint_2() {
+    fn parse_uint_2() {
         let buf: [u8; 5] = [1, 2, 3, 4, 5];
         let (remain_buf, res) = parse_uint::<u8>(&buf, 1);
         assert_eq!(res, 0x1u8);

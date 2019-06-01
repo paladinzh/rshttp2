@@ -582,7 +582,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_chopping() {
+    fn chopping() {
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
         const KEY1: &[u8] = b"hello1";
@@ -603,7 +603,7 @@ mod test {
     }
 
     #[test]
-    fn test_update_capacity() {
+    fn update_capacity() {
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
         const KEY1: &[u8] = b"hello1";
@@ -622,7 +622,7 @@ mod test {
     }
 
     #[test]
-    fn test_seek_no_hit() {
+    fn seek_no_hit() {
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
         const KEY1: &[u8] = b"hello1";
@@ -635,7 +635,7 @@ mod test {
     }
 
     #[test]
-    fn test_seek_hit_key() {
+    fn seek_hit_key() {
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
         const VALUE1: &[u8] = b"world1";
@@ -648,7 +648,7 @@ mod test {
     }
 
     #[test]
-    fn test_seek_hit_both() {
+    fn seek_hit_both() {
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
         // large enough to hold 1 KEY-VALUE
@@ -660,7 +660,7 @@ mod test {
     }
 
     #[test]
-    fn test_cacheblock_insert_and_get() {
+    fn cacheblock_insert_and_get() {
         const BLOCK_SIZE: usize = 15; // large enough to hold a key-value.
         let mut cb = CacheBlock::new(BLOCK_SIZE);
         let cb: &mut CacheBlock = unsafe {
@@ -674,7 +674,7 @@ mod test {
     }
 
     #[test]
-    fn test_cacheblock_insert_too_large() {
+    fn cacheblock_insert_too_large() {
         const BLOCK_SIZE: usize = 9; // small than a key-value
         let mut cb = CacheBlock::new(BLOCK_SIZE);
         let cb: &mut CacheBlock = unsafe {
@@ -686,7 +686,7 @@ mod test {
     }
 
     #[test]
-    fn test_cache_insert_in_1st_block() {
+    fn cache_insert_in_1st_block() {
         // large enough to hold a key-value, but not large enough to hold 2.
         const BLOCK_SIZE: usize = 15;
         let mut trial = Cache::new(BLOCK_SIZE);
@@ -697,7 +697,7 @@ mod test {
     }
 
     #[test]
-    fn test_cache_insert_new_block() {
+    fn cache_insert_new_block() {
         // large enough to hold a key-value, but not large enough to hold 2.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";
@@ -716,7 +716,7 @@ mod test {
     }
 
     #[test]
-    fn test_cache_truncate_0() {
+    fn cache_truncate_0() {
         // large enough to hold a key-value, but not large enough to hold 2.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";
@@ -740,7 +740,7 @@ mod test {
     }
 
     #[test]
-    fn test_cache_truncate_1() {
+    fn cache_truncate_1() {
         // large enough to hold a key-value, but not large enough to hold 2.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";
@@ -757,7 +757,7 @@ mod test {
     }
 
     #[test]
-    fn test_cacheblockiterator_1() {
+    fn cacheblockiterator_1() {
         // large enough to hold a key-value, but not large enough to hold 2.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";
@@ -781,7 +781,7 @@ mod test {
     }
 
     #[test]
-    fn test_cacheblockiterator_2() {
+    fn cacheblockiterator_2() {
         // large enough to hold a key-value, but not large enough to hold 2.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";

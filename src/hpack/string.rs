@@ -43,14 +43,14 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_serialize_raw_string_0() {
+    fn serialize_raw_string_0() {
         let mut buf: Vec<u8> = vec!();
         serialize_raw_string(&mut buf, b"");
         assert_eq!(buf, [0]);
     }
 
     #[test]
-    fn test_serialize_raw_string_1() {
+    fn serialize_raw_string_1() {
         let mut buf: Vec<u8> = vec!();
         serialize_raw_string(&mut buf, b"custom-key");
         assert_eq!(
@@ -59,7 +59,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_raw_string_0() {
+    fn parse_raw_string_0() {
         let buf = vec!(0u8);
         let (b, res) = parse_string(buf.as_slice()).unwrap();
         assert!(b.is_empty(), "{:?}", b);
@@ -67,7 +67,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_raw_string_1() {
+    fn parse_raw_string_1() {
         let buf = vec![0x0A, 0x63, 0x75, 0x73, 0x74, 0x6F, 0x6D, 0x2D, 0x6B, 0x65, 0x79];
         let (b, res) = parse_string(buf.as_slice()).unwrap();
         assert!(b.is_empty(), "{:?}", b);
@@ -75,7 +75,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_huffman_string_0() {
+    fn parse_huffman_string_0() {
         let buf = vec!(0x80u8);
         let (b, res) = parse_string(buf.as_slice()).unwrap();
         assert!(b.is_empty(), "{:?}", b);
@@ -83,7 +83,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_huffman_string_1() {
+    fn parse_huffman_string_1() {
         let buf = vec![
             0x8C, 0xF1, 0xE3, 0xC2, 0xE5,
             0xF2, 0x3A, 0x6B, 0xA0, 0xAB,

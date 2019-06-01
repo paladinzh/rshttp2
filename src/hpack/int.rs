@@ -84,7 +84,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_parse_0() {
+    fn parse_0() {
         let buf = vec!(0u8);
         let (b, res) = parse_uint(buf.as_slice(), 5).unwrap();
         assert!(b.is_empty(), "{:?}", b);
@@ -92,7 +92,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_1() {
+    fn parse_1() {
         let buf = vec!(0x0Au8);
         let (b, res) = parse_uint(buf.as_slice(), 5).unwrap();
         assert!(b.is_empty(), "{:?}", b);
@@ -100,7 +100,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_2() {
+    fn parse_2() {
         let buf = vec!(31u8, 154u8, 10u8);
         let (b, res) = parse_uint(buf.as_slice(), 5).unwrap();
         assert!(b.is_empty(), "{:?}", b);
@@ -108,49 +108,49 @@ mod test {
     }
 
     #[test]
-    fn test_parse_err0() {
+    fn parse_err0() {
         let buf: Vec<u8> = vec!();
         let err = parse_uint(buf.as_slice(), 5);
         assert!(err.is_err());
     }
     
     #[test]
-    fn test_parse_err1() {
+    fn parse_err1() {
         let buf: Vec<u8> = vec!(31u8, 154u8);
         let err = parse_uint(buf.as_slice(), 5);
         assert!(err.is_err());
     }
 
     #[test]
-    fn test_serialize_0() {
+    fn serialize_0() {
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 0, 5, 0);
         assert_eq!(buf, [0]);
     }
 
     #[test]
-    fn test_serialize_1() {
+    fn serialize_1() {
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 10, 5, 0xA0);
         assert_eq!(buf, [0xAA]);
     }
 
     #[test]
-    fn test_serialize_2() {
+    fn serialize_2() {
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 1337, 5, 0);
         assert_eq!(buf, [31u8, 154u8, 10u8]);
     }
 
     #[test]
-    fn test_serialize_3() {
+    fn serialize_3() {
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 31, 5, 0);
         assert_eq!(buf, [31, 0]);
     }
 
     #[test]
-    fn test_serialize_4() {
+    fn serialize_4() {
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, u64::max_value(), 1, 0);
         let (b, trial_value) = parse_uint(buf.as_slice(), 1).unwrap();
@@ -160,7 +160,7 @@ mod test {
     }
 
     #[test]
-    fn test_serialize_parse_exhaustive() {
+    fn serialize_parse_exhaustive() {
         for prefix_bits in 1usize..9usize {
             for oracle_value in 0u64..2000u64 {
                 let mut buf = vec!();

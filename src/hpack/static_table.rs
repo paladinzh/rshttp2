@@ -148,7 +148,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_static_table_seeker_exhaustive() {
+    fn seeker_exhaustive() {
         let seeker = Seeker::new();
         
         for oracle_idx in 1..RAW_TABLE.len() {
@@ -165,7 +165,7 @@ mod test {
     }
 
     #[test]
-    fn test_static_table_seeker_nonexist_header() {
+    fn seeker_nonexist_header() {
         let seeker = Seeker::new();
         let res = seeker.seek_with_name(b"NOT_EXIST");
         assert!(res.is_none());
@@ -174,7 +174,7 @@ mod test {
     }
 
     #[test]
-    fn test_static_table_seeker_nonexist_value () {
+    fn seeker_nonexist_value () {
         let seeker = Seeker::new();
         let res = seeker.seek_with_name(b":status");
         assert!(res.is_some());

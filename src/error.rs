@@ -128,12 +128,16 @@ impl std::error::Error for Error {
 }
 
 #[cfg(test)]
+mod test {
+    use super::*;
 
-#[test]
-fn test_errorcode() {
-    for oracle in &ALL_ERRORS {
-        let x = oracle.to_h2_id();
-        let trial = Code::from_h2_id(x);
-        assert_eq!(trial, *oracle);
+    #[test]
+    fn errorcode() {
+        for oracle in &ALL_ERRORS {
+            let x = oracle.to_h2_id();
+            let trial = Code::from_h2_id(x);
+            assert_eq!(trial, *oracle);
+        }
     }
 }
+

@@ -179,14 +179,14 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_bit_iterator_0() {
+    fn bit_iterator_0() {
         let buf: Vec<u8> = vec!();
         let mut iter = BitIterator::new(buf.as_slice());
         assert_eq!(iter.next(), None);
     }
 
     #[test]
-    fn test_bit_iterator_1() {
+    fn bit_iterator_1() {
         let oracle = 0xCCu8;
         let buf: Vec<u8> = vec!(oracle);
         let iter = BitIterator::new(buf.as_slice());
@@ -198,7 +198,7 @@ mod test {
     }
 
     #[test]
-    fn test_bit_iterator_2() {
+    fn bit_iterator_2() {
         let oracle0 = 0xCCu8;
         let oracle1 = 0x55u8;
         let buf: Vec<u8> = vec!(oracle0, oracle1);
@@ -211,7 +211,7 @@ mod test {
     }
 
     #[test]
-    fn test_huffman_tree_walker_0() {
+    fn huffman_tree_walker_0() {
         let buf = vec!(0xF8u8);
         let iter = BitIterator::new(buf.as_slice());
         let mut walker = HuffmanTreeWalker::new(&*HUFFMAN_TREE);
@@ -229,7 +229,7 @@ mod test {
     }
 
     #[test]
-    fn test_huffman_tree_walker_1() {
+    fn huffman_tree_walker_1() {
         let buf = vec!(0x53u8, 0xF8u8);
         let iter = BitIterator::new(buf.as_slice());
         let mut walker = HuffmanTreeWalker::new(&*HUFFMAN_TREE);
@@ -247,7 +247,7 @@ mod test {
     }
 
     #[test]
-    fn test_encode_0() {
+    fn encode_0() {
         let buf = vec!(38u8);
         let mut trial: Vec<u8> = vec!();
         encode(&mut trial, buf.as_slice());
@@ -255,7 +255,7 @@ mod test {
     }
 
     #[test]
-    fn test_encode_1() {
+    fn encode_1() {
         let buf = vec!(32u8);
         let mut trial: Vec<u8> = vec!();
         encode(&mut trial, buf.as_slice());
@@ -263,7 +263,7 @@ mod test {
     }
 
     #[test]
-    fn test_encode_2() {
+    fn encode_2() {
         let buf = vec!(32u8, 33u8);
         let mut trial: Vec<u8> = vec!();
         encode(&mut trial, buf.as_slice());
@@ -286,7 +286,7 @@ mod test {
     }
    
     #[test]
-    fn test_encode_decode_random() {
+    fn encode_decode_random() {
         for _ in 0..1000 {
             let oracle = random_str();
 

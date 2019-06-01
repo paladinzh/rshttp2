@@ -88,19 +88,19 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_enhancedslice_short_slice() {
+    fn enhancedslice_short_slice() {
         let s = EnhancedSlice::new_with_slice(b"012");
         assert_eq!(s.as_slice(), b"012");
     }
 
     #[test]
-    fn test_enhancedslice_long_slice() {
+    fn long_slice() {
         let s = EnhancedSlice::new_with_slice(b"0123456789ABCDEF");
         assert_eq!(s.as_slice(), b"0123456789ABCDEF");
     }
 
     #[test]
-    fn test_enhancedslice_short_vec() {
+    fn short_vec() {
         let mut vec: Vec<u8> = vec!();
         vec.extend_from_slice(b"0123");
         let s = EnhancedSlice::new_with_vec(vec);
@@ -108,7 +108,7 @@ mod test {
     }
 
     #[test]
-    fn test_enhancedslice_long_vec() {
+    fn long_vec() {
         let mut vec: Vec<u8> = vec!();
         vec.extend_from_slice(b"0123456789ABCDEF");
         let s = EnhancedSlice::new_with_vec(vec);
@@ -116,7 +116,7 @@ mod test {
     }
 
     #[test]
-    fn test_debug_short() {
+    fn debug_short() {
         let s = EnhancedSlice::new_with_slice(b"01");
         let t = format!("{:?}", s);
         let o = format!("{:?}", b"01");
@@ -124,7 +124,7 @@ mod test {
     }
 
     #[test]
-    fn test_debug_slice() {
+    fn debug_slice() {
         let s = EnhancedSlice::new_with_slice(b"0123456789ABCDEF");
         let t = format!("{:?}", s);
         let o = format!("{:?}", b"0123456789ABCDEF");
@@ -132,7 +132,7 @@ mod test {
     }
 
     #[test]
-    fn test_debug_vec() {
+    fn debug_vec() {
         let mut vec: Vec<u8> = vec!();
         vec.extend_from_slice(b"0123456789ABCDEF");
         let s = EnhancedSlice::new_with_vec(vec);

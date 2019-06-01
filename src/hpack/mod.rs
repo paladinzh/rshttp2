@@ -178,23 +178,23 @@ impl Encoder {
         name: &[u8],
         value: &[u8],
     ) -> () {
-        let with_caching = |out: &mut Vec<u8>, idx: usize| {
-            serialize_uint(out, idx as u64, 6, 0x40);
-        };
-        let without_caching = |out: &mut Vec<u8>, idx: usize| {
-            serialize_uint(out, idx as u64, 4, 0x00);
-        };
-        let never_caching = |out: &mut Vec<u8>, idx: usize| {
-            serialize_uint(out, idx as u64, 4, 0x10);
-        };
         match hint {
             CacheHint::PREFER_CACHE => {
+                let with_caching = |out: &mut Vec<u8>, idx: usize| {
+                    serialize_uint(out, idx as u64, 6, 0x40);
+                };
                 self.encode_(out, name, value, with_caching);
             },
             CacheHint::PREFER_NOT_CACHE => {
+                let without_caching = |out: &mut Vec<u8>, idx: usize| {
+                    serialize_uint(out, idx as u64, 4, 0x00);
+                };
                 self.encode_(out, name, value, without_caching);
             },
             CacheHint::NEVER_CACHE => {
+                let never_caching = |out: &mut Vec<u8>, idx: usize| {
+                    serialize_uint(out, idx as u64, 4, 0x10);
+                };
                 self.encode_(out, name, value, never_caching);
             },
         };
@@ -250,7 +250,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_parse_header_field_indexed_static_table() {
+    fn parse_header_field_indexed_static_table() {
         let buf = vec![0x82u8];
         let mut decoder = Decoder::with_capacity(1);
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
@@ -265,7 +265,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_header_field_indexed_dynamic_table() {
+    fn parse_header_field_indexed_dynamic_table() {
         let mut decoder = Decoder::with_capacity(100);
         const NAME0: &[u8] = b"NAME0";
         const VALUE0: &[u8] = b"VALUE0";
@@ -288,7 +288,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_header_field_literal_value_incr_index() {
+    fn parse_header_field_literal_value_incr_index() {
         const AGE: &[u8] = b"123";
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 21, 6, 0x40);
@@ -312,7 +312,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_header_field_literal_name_value_incr_index() {
+    fn parse_header_field_literal_name_value_incr_index() {
         const AGE: &[u8] = b"123";
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 0, 6, 0x40);
@@ -337,7 +337,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_header_field_literal_value_without_indexing() {
+    fn parse_header_field_literal_value_without_indexing() {
         const AGE: &[u8] = b"123";
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 21, 4, 0);
@@ -357,7 +357,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_header_field_literal_name_value_without_indexing() {
+    fn parse_header_field_literal_name_value_without_indexing() {
         const AGE: &[u8] = b"123";
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 0, 4, 0);
@@ -378,7 +378,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_header_field_literal_value_never_indexing() {
+    fn parse_header_field_literal_value_never_indexing() {
         const AGE: &[u8] = b"123";
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 21, 4, 0x10);
@@ -402,7 +402,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_header_field_literal_name_value_never_indexing() {
+    fn parse_header_field_literal_name_value_never_indexing() {
         const AGE: &[u8] = b"123";
         let mut buf: Vec<u8> = vec!();
         serialize_uint(&mut buf, 0, 4, 0x10);
@@ -427,7 +427,7 @@ mod test {
     }
 
     #[test]
-    fn test_random() {
+    fn random() {
         let names: Vec<&'static [u8]> = vec![
             b":method",
             b":status",

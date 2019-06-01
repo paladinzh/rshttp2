@@ -357,7 +357,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_settingsframe_serde() {
+    fn settingsframe_serde() {
         let mut rng = random::default();
         for _ in 0..1000 {
             let ack = if (rng.read_u64() & 1) > 0 {true} else {false};
@@ -397,7 +397,7 @@ mod test {
     }
 
     #[test]
-    fn test_goawayframe_serde() {
+    fn goawayframe_serde() {
         let mut rng = random::default();
         for _ in 0..1000 {
             let mut f = GoAwayFrame::new();
