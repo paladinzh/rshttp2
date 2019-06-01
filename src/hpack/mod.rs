@@ -53,7 +53,7 @@ impl Decoder {
                     // dropped during truncation.
                     // Because names are usually short, it is not necessary
                     // to optimize.
-                    let name = EnhancedSlice::new_with_vec(
+                    let name = MaybeOwnedSlice::new_with_vec(
                         name.as_slice().to_vec());
                     let (rem, value) = parse_string(rem)?;
                     self.dyntbl.prepend(name.as_slice(), value.as_slice());
@@ -83,13 +83,13 @@ impl Decoder {
                     let (name, _) = self.get_from_index_table(idx as usize)?;
                     let (rem, value) = parse_string(rem)?;
                     let (raw, _) = input.split_at(input.len() - rem.len());
-                    let raw = EnhancedSlice::new_with_slice(raw);
+                    let raw = MaybeOwnedSlice::new_with_slice(raw);
                     Ok((rem, DecodeResult::NeverIndex((name, value, raw))))
                 } else {
                     let (rem, name) = parse_string(rem)?;
                     let (rem, value) = parse_string(rem)?;
                     let (raw, _) = input.split_at(input.len() - rem.len());
-                    let raw = EnhancedSlice::new_with_slice(raw);
+                    let raw = MaybeOwnedSlice::new_with_slice(raw);
                     Ok((rem, DecodeResult::NeverIndex((name, value, raw))))
                 }
             },
@@ -100,8 +100,8 @@ impl Decoder {
 
 #[derive(Debug)]
 pub enum DecodeResult<'a> {
-    Normal((EnhancedSlice<'a>, EnhancedSlice<'a>)),
-    NeverIndex((EnhancedSlice<'a>, EnhancedSlice<'a>, EnhancedSlice<'a>)),
+    Normal((MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>)),
+    NeverIndex((MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>)),
 }
 
 impl Decoder {
@@ -109,7 +109,7 @@ impl Decoder {
     fn get_from_index_table(
         &self,
         idx: usize,
-    ) -> Result<(EnhancedSlice, Option<EnhancedSlice>), &'static str> {
+    ) -> Result<(MaybeOwnedSlice, Option<MaybeOwnedSlice>), &'static str> {
         if idx < RAW_TABLE.len() {
             self.get_from_static_table(idx)
         } else {
@@ -120,15 +120,15 @@ impl Decoder {
     fn get_from_static_table(
         &self,
         idx: usize,
-    ) -> Result<(EnhancedSlice, Option<EnhancedSlice>), &'static str> {
+    ) -> Result<(MaybeOwnedSlice, Option<MaybeOwnedSlice>), &'static str> {
         if idx < 1 {
             warn!("request a out-of-index header field. index: {}", idx);
             return Err("index out of space.");
         }
         let item = &RAW_TABLE[idx];
-        let name = EnhancedSlice::new_with_slice(item.name);
+        let name = MaybeOwnedSlice::new_with_slice(item.name);
         let value = match item.value {
-            Some(x) => Some(EnhancedSlice::new_with_slice(x)),
+            Some(x) => Some(MaybeOwnedSlice::new_with_slice(x)),
             None => None,
         };
         Ok((name, value))
@@ -137,16 +137,16 @@ impl Decoder {
     fn get_from_dynamic_table(
         &self,
         idx: usize,
-    ) -> Result<(EnhancedSlice, Option<EnhancedSlice>), &'static str> {
+    ) -> Result<(MaybeOwnedSlice, Option<MaybeOwnedSlice>), &'static str> {
         if idx >= RAW_TABLE.len() +  self.dyntbl.len() {
             warn!("request a out-of-index header field. index: {}", idx);
             return Err("index out of space.");
         }
         let idx = idx - RAW_TABLE.len();
         let item = self.dyntbl.get(idx).unwrap();
-        let name = EnhancedSlice::new_with_slice(item.name);
+        let name = MaybeOwnedSlice::new_with_slice(item.name);
         let value = match item.value {
-            Some(x) => Some(EnhancedSlice::new_with_slice(x)),
+            Some(x) => Some(MaybeOwnedSlice::new_with_slice(x)),
             None => None,
         };
         Ok((name, value))

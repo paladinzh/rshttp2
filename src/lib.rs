@@ -24,6 +24,6 @@ pub use connection::Connection;
 
 mod hpack;
 
-mod enhanced_slice;
-use enhanced_slice::EnhancedSlice;
+mod maybe_owned_slice;
+use maybe_owned_slice::MaybeOwnedSlice;
 

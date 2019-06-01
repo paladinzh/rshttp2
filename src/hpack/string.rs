@@ -1,6 +1,6 @@
 use super::huffman;
 use super::int::*;
-use super::super::EnhancedSlice;
+use super::super::MaybeOwnedSlice;
 
 pub fn serialize_string(out: &mut Vec<u8>, input: &[u8]) -> () {
     if input.len() < 16 {
@@ -15,7 +15,7 @@ fn serialize_raw_string(out: &mut Vec<u8>, input: &[u8]) -> () {
     out.extend_from_slice(input);
 }
 
-pub fn parse_string(input: &[u8]) -> Result<(&[u8], EnhancedSlice), &'static str> {
+pub fn parse_string(input: &[u8]) -> Result<(&[u8], MaybeOwnedSlice), &'static str> {
     if input.is_empty() {
         return Err("shortage of input on deserialization.");
     }
@@ -29,11 +29,11 @@ pub fn parse_string(input: &[u8]) -> Result<(&[u8], EnhancedSlice), &'static str
     let (buf, rem) = buf.split_at(len);
 
     if huffman_encoded {
-        let res = EnhancedSlice::new_with_slice(buf);
+        let res = MaybeOwnedSlice::new_with_slice(buf);
         Ok((rem, res))
     } else {
         let buf = huffman::decode(buf)?;
-        let res = EnhancedSlice::new_with_vec(buf);
+        let res = MaybeOwnedSlice::new_with_vec(buf);
         Ok((rem, res))
     }
 }
