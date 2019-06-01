@@ -44,13 +44,11 @@ pub fn decode(
     Ok(res)
 }
 
-pub fn encode(
-    out: &mut Vec<u8>,
-    mut b: *const u8,
-    e: *const u8,
-) -> Result<(), Error> {
+pub fn encode(out: &mut Vec<u8>, input: &[u8]) -> () {
     const TOTAL_BITS: usize = 64;
     const BYTE_WIDTH: usize = 8;
+    let mut b = input.as_ptr();
+    let e = unsafe {b.add(input.len())};
     let mut remaining_bits = 0usize;
     let mut buf = 0u64;
     loop {
@@ -82,8 +80,6 @@ pub fn encode(
         let head = chop_head(&mut buf);
         out.push(head);
     }
-
-    Ok(())
 }
 
 const BYTE_WIDTH: usize = 8;
@@ -253,30 +249,24 @@ mod test {
     #[test]
     fn test_encode_0() {
         let buf = vec!(38u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
         let mut trial: Vec<u8> = vec!();
-        let _ = encode(&mut trial, b, e).unwrap();
+        encode(&mut trial, buf.as_slice());
         assert_eq!(trial, [0xF8u8]);
     }
 
     #[test]
     fn test_encode_1() {
         let buf = vec!(32u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
         let mut trial: Vec<u8> = vec!();
-        let _ = encode(&mut trial, b, e).unwrap();
+        encode(&mut trial, buf.as_slice());
         assert_eq!(trial, [0x53u8]);
     }
 
     #[test]
     fn test_encode_2() {
         let buf = vec!(32u8, 33u8);
-        let b = buf.as_ptr();
-        let e = unsafe {b.add(buf.len())};
         let mut trial: Vec<u8> = vec!();
-        let _ = encode(&mut trial, b, e).unwrap();
+        encode(&mut trial, buf.as_slice());
         assert_eq!(trial, [0x53u8, 0xF8u8]);
     }
 
@@ -300,10 +290,8 @@ mod test {
         for _ in 0..1000 {
             let oracle = random_str();
 
-            let b = oracle.as_ptr();
-            let e = unsafe {b.add(oracle.len())};
             let mut encoded = vec!();
-            let _ = encode(&mut encoded, b, e).unwrap();
+            encode(&mut encoded, oracle.as_slice());
 
             let trial = decode(encoded.as_slice()).unwrap();
             assert_eq!(trial, oracle);

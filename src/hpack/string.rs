@@ -2,13 +2,17 @@ use super::huffman;
 use super::int::*;
 use super::super::EnhancedSlice;
 
-pub fn serialize_raw_string(
-    out: &mut Vec<u8>,
-    value: &[u8],
-) -> Result<(), &'static str> {
-    let _ = serialize_uint(out, value.len() as u64, 7, 0).unwrap();
-    out.extend_from_slice(value);
-    Ok(())
+pub fn serialize_string(out: &mut Vec<u8>, input: &[u8]) -> () {
+    if input.len() < 16 {
+        serialize_raw_string(out, input)
+    } else {
+        huffman::encode(out, input)
+    }
+}
+
+fn serialize_raw_string(out: &mut Vec<u8>, input: &[u8]) -> () {
+    serialize_uint(out, input.len() as u64, 7, 0);
+    out.extend_from_slice(input);
 }
 
 pub fn parse_string(input: &[u8]) -> Result<(&[u8], EnhancedSlice), &'static str> {
@@ -41,16 +45,14 @@ mod test {
     #[test]
     fn test_serialize_raw_string_0() {
         let mut buf: Vec<u8> = vec!();
-        let res = serialize_raw_string(&mut buf, b"");
-        assert!(res.is_ok());
+        serialize_raw_string(&mut buf, b"");
         assert_eq!(buf, [0]);
     }
 
     #[test]
     fn test_serialize_raw_string_1() {
         let mut buf: Vec<u8> = vec!();
-        let res = serialize_raw_string(&mut buf, b"custom-key");
-        assert!(res.is_ok());
+        serialize_raw_string(&mut buf, b"custom-key");
         assert_eq!(
             buf,
             [0x0A, 0x63, 0x75, 0x73, 0x74, 0x6F, 0x6D, 0x2D, 0x6B, 0x65, 0x79]);
