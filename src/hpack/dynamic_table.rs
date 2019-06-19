@@ -1,12 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::collections::hash_map::DefaultHasher;
+use std::sync::Arc;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::hash::Hasher;
 use std::ptr;
 use std::slice;
 use std::pin::Pin;
 use std::ops::Bound::{Included, Unbounded};
-use std::marker::PhantomPinned;
+use std::marker::{PhantomPinned, PhantomData};
+use std::mem::swap;
 
 pub struct DynamicTable {
     h2_used_size: usize,
@@ -184,8 +187,10 @@ impl SeqIdGen {
     }
 }
 
+type PinnedCacheBlock = Pin<Arc<RefCell<CacheBlock>>>;
+
 struct Cache {
-    first_block: Pin<Box<CacheBlock>>,
+    first_block: PinnedCacheBlock,
     last_block: *mut CacheBlock,
     size_for_next_block: usize,
 }
@@ -197,8 +202,8 @@ impl Cache {
             last_block: ptr::null_mut(),
             size_for_next_block: block_size,
         };
-        unsafe {
-            let last_block = cache.first_block.as_mut().get_unchecked_mut();
+        {
+            let last_block = mutref_cache_block_from_pinned(&cache.first_block);
             cache.last_block = last_block as *mut CacheBlock;
         }
         cache
@@ -264,24 +269,25 @@ impl Cache {
 
     fn truncate(&mut self, seq_id: SeqId) -> () {
         loop {
-            let blk: &mut CacheBlock = unsafe {
-                self.first_block.as_mut().get_unchecked_mut()
-            };
-            match blk.get_last_seq_id() {
-                None => {
-                    return;
-                },
-                Some(last_seq_id) => {
-                    if last_seq_id >= seq_id {
+            let nxt = {
+                let blk = mutref_cache_block_from_pinned(&self.first_block);
+                match blk.get_last_seq_id() {
+                    None => {
                         return;
+                    },
+                    Some(last_seq_id) => {
+                        if last_seq_id >= seq_id {
+                            return;
+                        }
                     }
+                };
+                if blk.next_block.is_none() {
+                    return;
                 }
+                let nxt = blk.next_block.take();
+                nxt.unwrap()
             };
-            if blk.next_block.is_none() {
-                return;
-            }
-            let nxt = blk.next_block.take();
-            self.first_block = nxt.unwrap();
+            self.first_block = nxt;
         }
     }
 
@@ -289,26 +295,47 @@ impl Cache {
         self.size_for_next_block = new_size;
     }
 
-    fn iter(&self) -> CacheBlockIter {
-        CacheBlockIter{
-            nxt_block: Some(&*self.first_block),
-        }
+    fn iter<'a>(&'a self) -> CacheBlockIter<'a> {
+        CacheBlockIter::<'a>::new(self.first_block.clone())
     }
 }
 
 struct CacheBlockIter<'a> {
-    nxt_block: Option<&'a CacheBlock>,
+    cur_block: Option<PinnedCacheBlock>,
+    nxt_block: Option<PinnedCacheBlock>,
+    _phantom: PhantomData<&'a PinnedCacheBlock>,
+}
+
+impl<'a> CacheBlockIter<'a> {
+    fn new(first: PinnedCacheBlock) -> CacheBlockIter<'a> {
+        CacheBlockIter{
+            cur_block: None,
+            nxt_block: Some(first),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<'a> Iterator for CacheBlockIter<'a> {
     type Item = &'a CacheBlock;
 
     fn next(&mut self) -> Option<&'a CacheBlock> {
-        match self.nxt_block {
-            None => None,
-            Some(blk) => {
-                self.nxt_block = blk.get_next_block();
-                Some(blk)
+        if self.nxt_block.is_none() {
+            None
+        } else {
+            self.cur_block = None;
+            swap(&mut self.cur_block, &mut self.nxt_block);
+            let cur_block: *const CacheBlock = {
+                let blk = self.cur_block.as_ref();
+                let blk = blk.unwrap();
+                let blk = ref_cache_block_from_pinned(blk);
+                blk as *const CacheBlock
+            };
+            self.nxt_block = unsafe {
+                (*cur_block).next_block.clone()
+            };
+            unsafe {
+                Some(&*cur_block)
             }
         }
     }
@@ -316,7 +343,7 @@ impl<'a> Iterator for CacheBlockIter<'a> {
 
 struct CacheBlock {
     _pin: PhantomPinned,
-    next_block: Option<Pin<Box<CacheBlock>>>,
+    next_block: Option<PinnedCacheBlock>,
     
     buffer: Vec<u8>,
     end_of_buffer: *const u8,
@@ -327,8 +354,8 @@ struct CacheBlock {
 }
 
 impl CacheBlock {
-    fn new(block_size: usize) -> Pin<Box<CacheBlock>> {
-        let mut res = Box::pin(CacheBlock{
+    fn new(block_size: usize) -> PinnedCacheBlock {
+        let res = Arc::pin(RefCell::new(CacheBlock{
             _pin: PhantomPinned,
             next_block: None,
             buffer: vec!(),
@@ -337,11 +364,9 @@ impl CacheBlock {
             index_on_seq_id: BTreeMap::new(),
             last_seq_id: None,
             index_on_name_value: BTreeSet::new(),
-        });
+        }));
         {
-            let res: &mut CacheBlock = unsafe {
-                res.as_mut().get_unchecked_mut()
-            };
+            let res = mutref_cache_block_from_pinned(&res);
             res.buffer.resize(block_size, 0);
             res.begin_of_unused = res.buffer.as_mut_ptr();
             res.end_of_buffer = unsafe {
@@ -473,12 +498,17 @@ impl CacheBlock {
         self.last_seq_id
     }
 
-    fn set_next_block(&mut self, next_block: Pin<Box<CacheBlock>>) -> &mut CacheBlock {
+    fn set_next_block(&mut self, next_block: PinnedCacheBlock) -> &mut CacheBlock {
         assert!(self.next_block.is_none());
         self.next_block = Some(next_block);
-        let res: &mut Pin<Box<CacheBlock>> = self.next_block.as_mut().unwrap();
+        let res = {
+            let x = self.next_block.as_ref();
+            let x = x.unwrap();
+            let x = mutref_cache_block_from_pinned(x);
+            x as *mut CacheBlock
+        };
         unsafe {
-            res.as_mut().get_unchecked_mut()
+            &mut *res
         }
     }
 
@@ -486,7 +516,7 @@ impl CacheBlock {
         match self.next_block {
             None => None,
             Some(ref nxt) => {
-                let x = &* *nxt;
+                let x = ref_cache_block_from_pinned(nxt);
                 Some(x)
             }
         }
@@ -577,6 +607,27 @@ fn get_cached_value<'a, 'b, T>(_: &'a T, cached: &'b CacheItem) -> &'a [u8] {
     }
 }
 
+fn ref_cache_block_from_pinned(pinned: &PinnedCacheBlock) -> &CacheBlock {
+    let res = pinned.as_ref();
+    let res = res.get_ref().borrow();
+    let res = &*res;
+    let res = res as *const CacheBlock;
+    unsafe {
+        &*res
+    }
+}
+
+fn mutref_cache_block_from_pinned(pinned: &PinnedCacheBlock) -> &mut CacheBlock {
+    let res = pinned.as_ref();
+    let mut res = res.get_ref().borrow_mut();
+    let res = &mut *res;
+    let res = res as *mut CacheBlock;
+    unsafe {
+        &mut *res
+    }
+}
+
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -662,10 +713,8 @@ mod test {
     #[test]
     fn cacheblock_insert_and_get() {
         const BLOCK_SIZE: usize = 15; // large enough to hold a key-value.
-        let mut cb = CacheBlock::new(BLOCK_SIZE);
-        let cb: &mut CacheBlock = unsafe {
-            cb.as_mut().get_unchecked_mut()
-        };
+        let cb = CacheBlock::new(BLOCK_SIZE);
+        let cb: &mut CacheBlock = mutref_cache_block_from_pinned(&cb);
         let _ = cb.append(1, b"hello", b"world").unwrap();
         let trial = cb.get(1).unwrap();
         assert_eq!(get_cached_name(&cb, &trial), b"hello");
@@ -676,10 +725,8 @@ mod test {
     #[test]
     fn cacheblock_insert_too_large() {
         const BLOCK_SIZE: usize = 9; // small than a key-value
-        let mut cb = CacheBlock::new(BLOCK_SIZE);
-        let cb: &mut CacheBlock = unsafe {
-            cb.as_mut().get_unchecked_mut()
-        };
+        let cb = CacheBlock::new(BLOCK_SIZE);
+        let cb: &mut CacheBlock = mutref_cache_block_from_pinned(&cb);
         let trial = cb.append(1, b"hello", b"world");
         assert!(trial.is_none());
         assert!(cb.get_last_seq_id().is_none());
