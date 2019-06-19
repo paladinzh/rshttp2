@@ -1,6 +1,7 @@
 use super::huffman;
 use super::int::*;
 use super::super::MaybeOwnedSlice;
+use super::super::Sliceable;
 
 pub fn serialize_string(out: &mut Vec<u8>, input: &[u8]) -> () {
     if input.len() < 16 {

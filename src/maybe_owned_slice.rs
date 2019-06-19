@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter, Error};
 use std::cmp::Ordering;
+use super::Sliceable;
 
 pub enum MaybeOwnedSlice<'a> {
     Array((u8, [u8; 15])),
@@ -29,8 +30,10 @@ impl<'a> MaybeOwnedSlice<'a> {
             MaybeOwnedSlice::Vec(v)
         }
     }
+}
 
-    pub fn as_slice(&self) -> &[u8] {
+impl<'a> Sliceable<u8> for MaybeOwnedSlice<'a> {
+    fn as_slice(&self) -> &[u8] {
         match self {
             MaybeOwnedSlice::Array((len, ref arr)) => {
                 let (used, _) = arr.split_at(*len as usize);
