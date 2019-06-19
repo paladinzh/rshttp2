@@ -1,33 +1,48 @@
-use std::fmt::{Debug, Formatter, Error};
 use std::cmp::Ordering;
-use super::Sliceable;
+use std::fmt::{Debug, Formatter, Error};
+use super::CachedStr;
+use super::super::Sliceable;
 
 pub enum MaybeOwnedSlice<'a> {
     Array((u8, [u8; 15])),
     Slice(&'a [u8]),
     Vec(Vec<u8>),
+    CachedStr(CachedStr),
 }
 
 impl<'a> MaybeOwnedSlice<'a> {
     pub fn new_with_slice(v: &[u8]) -> MaybeOwnedSlice {
-        if v.len() < 16 {
-            let mut dst = [0u8; 15];
-            let (used, _) = dst.split_at_mut(v.len());
-            used.copy_from_slice(v);
-            MaybeOwnedSlice::Array((v.len() as u8, dst))
-        } else {
-            MaybeOwnedSlice::Slice(v)
+        let a = MaybeOwnedSlice::try_new_with_array(v);
+        match a {
+            Some(x) => x,
+            None => MaybeOwnedSlice::Slice(v)
         }
     }
 
     pub fn new_with_vec(v: Vec<u8>) -> MaybeOwnedSlice<'static> {
+        let a = MaybeOwnedSlice::try_new_with_array(v.as_slice());
+        match a {
+            Some(x) => x,
+            None => MaybeOwnedSlice::Vec(v)
+        }
+    }
+
+    pub fn new_with_cached_str(v: &CachedStr) -> MaybeOwnedSlice<'static> {
+        let a = MaybeOwnedSlice::try_new_with_array(v.as_slice());
+        match a {
+            Some(x) => x,
+            None => MaybeOwnedSlice::CachedStr(v.clone())
+        }
+    }
+
+    fn try_new_with_array(v: &[u8]) -> Option<MaybeOwnedSlice<'static>> {
         if v.len() < 16 {
             let mut dst = [0u8; 15];
             let (used, _) = dst.split_at_mut(v.len());
-            used.copy_from_slice(v.as_slice());
-            MaybeOwnedSlice::Array((v.len() as u8, dst))
+            used.copy_from_slice(v);
+            Some(MaybeOwnedSlice::Array((v.len() as u8, dst)))
         } else {
-            MaybeOwnedSlice::Vec(v)
+            None
         }
     }
 }
@@ -41,24 +56,15 @@ impl<'a> Sliceable<u8> for MaybeOwnedSlice<'a> {
             },
             MaybeOwnedSlice::Slice(x) => x,
             MaybeOwnedSlice::Vec(ref x) => x.as_slice(),
+            MaybeOwnedSlice::CachedStr(ref x) => x.as_slice(),
         }
     }
 }
 
 impl<'a> Debug for MaybeOwnedSlice<'a> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        match self {
-            MaybeOwnedSlice::Array((len, arr)) => {
-                let (used, _) = arr.split_at(*len as usize);
-                used.fmt(f)
-            },
-            MaybeOwnedSlice::Slice(slice) => {
-                slice.fmt(f)
-            },
-            MaybeOwnedSlice::Vec(ref vec) => {
-                vec.as_slice().fmt(f)
-            }
-        }
+        let s = self.as_slice();
+        s.fmt(f)
     }
 }
 

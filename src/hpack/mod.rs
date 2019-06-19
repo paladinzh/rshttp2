@@ -1,14 +1,17 @@
-mod static_table;
 mod dynamic_table;
 mod int;
 mod huffman;
 mod huffman_codes;
+mod maybe_owned_slice;
+mod static_table;
 mod string;
 
+
+use dynamic_table::*;
 use int::*;
+use maybe_owned_slice::*;
 use string::*;
 use static_table::*;
-use dynamic_table::*;
 use super::*;
 
 pub struct Decoder {
@@ -49,12 +52,6 @@ impl Decoder {
                 let (rem, idx) = parse_uint(input, 6)?;
                 if idx > 0 {
                     let (name, _) = self.get_from_index_table(idx as usize)?;
-                    // `name` must be cloned because the referenced can be
-                    // dropped during truncation.
-                    // Because names are usually short, it is not necessary
-                    // to optimize.
-                    let name = MaybeOwnedSlice::new_with_vec(
-                        name.as_slice().to_vec());
                     let (rem, value) = parse_string(rem)?;
                     self.dyntbl.prepend(name.as_slice(), value.as_slice());
                     Ok((rem, DecodeResult::Normal((name, value))))
@@ -109,7 +106,7 @@ impl Decoder {
     fn get_from_index_table(
         &self,
         idx: usize,
-    ) -> Result<(MaybeOwnedSlice, Option<MaybeOwnedSlice>), &'static str> {
+    ) -> Result<(MaybeOwnedSlice<'static>, Option<MaybeOwnedSlice<'static>>), &'static str> {
         if idx < RAW_TABLE.len() {
             self.get_from_static_table(idx)
         } else {
@@ -120,7 +117,7 @@ impl Decoder {
     fn get_from_static_table(
         &self,
         idx: usize,
-    ) -> Result<(MaybeOwnedSlice, Option<MaybeOwnedSlice>), &'static str> {
+    ) -> Result<(MaybeOwnedSlice<'static>, Option<MaybeOwnedSlice<'static>>), &'static str> {
         if idx < 1 {
             warn!("request a out-of-index header field. index: {}", idx);
             return Err("index out of space.");
@@ -137,16 +134,16 @@ impl Decoder {
     fn get_from_dynamic_table(
         &self,
         idx: usize,
-    ) -> Result<(MaybeOwnedSlice, Option<MaybeOwnedSlice>), &'static str> {
+    ) -> Result<(MaybeOwnedSlice<'static>, Option<MaybeOwnedSlice<'static>>), &'static str> {
         if idx >= RAW_TABLE.len() +  self.dyntbl.len() {
             warn!("request a out-of-index header field. index: {}", idx);
             return Err("index out of space.");
         }
         let idx = idx - RAW_TABLE.len();
         let item = self.dyntbl.get(idx).unwrap();
-        let name = MaybeOwnedSlice::new_with_slice(item.name);
+        let name = MaybeOwnedSlice::new_with_cached_str(&item.name);
         let value = match item.value {
-            Some(x) => Some(MaybeOwnedSlice::new_with_slice(x)),
+            Some(ref x) => Some(MaybeOwnedSlice::new_with_cached_str(x)),
             None => None,
         };
         Ok((name, value))
@@ -306,9 +303,9 @@ mod test {
         };
         assert_eq!(decoder.dyntbl.len(), 1);
         let res = decoder.dyntbl.get(0).unwrap();
-        assert_eq!(res.name, b"age");
+        assert_eq!(res.name.as_slice(), b"age");
         assert!(res.value.is_some());
-        assert_eq!(res.value.unwrap(), AGE);
+        assert_eq!(res.value.unwrap().as_slice(), AGE);
     }
 
     #[test]
@@ -331,9 +328,9 @@ mod test {
         };
         assert_eq!(decoder.dyntbl.len(), 1);
         let res = decoder.dyntbl.get(0).unwrap();
-        assert_eq!(res.name, b"age");
+        assert_eq!(res.name.as_slice(), b"age");
         assert!(res.value.is_some());
-        assert_eq!(res.value.unwrap(), AGE);
+        assert_eq!(res.value.unwrap().as_slice(), AGE);
     }
 
     #[test]

@@ -1,15 +1,17 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::collections::hash_map::DefaultHasher;
-use std::sync::Arc;
 use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
+use std::collections::hash_map::DefaultHasher;
+use std::fmt::{Debug, Formatter, Error};
 use std::hash::Hasher;
-use std::ptr;
-use std::slice;
-use std::pin::Pin;
-use std::ops::Bound::{Included, Unbounded};
 use std::marker::{PhantomPinned, PhantomData};
 use std::mem::swap;
+use std::ops::Bound::{Included, Unbounded};
+use std::pin::Pin;
+use std::ptr;
+use std::slice;
+use std::sync::Arc;
+use super::super::Sliceable;
 
 pub struct DynamicTable {
     h2_used_size: usize,
@@ -38,13 +40,13 @@ impl DynamicTable {
             return None;
         }
         let seq_id = end - index;
-        let cached = self.cache.get(seq_id).unwrap();
-        let item = Item{
-            name: get_cached_name(self, &cached),
-            value: Some(get_cached_value(self, &cached)),
+        let (block, item) = self.cache.get(seq_id).unwrap();
+        let res = Item{
+            name: CachedStr::new(block.clone(), item.name, item.name_len),
+            value: Some(CachedStr::new(block, item.value, item.value_len)),
             index: index as usize,
         };
-        Some(item)
+        Some(res)
     }
 
     pub fn prepend(&mut self, name: &[u8], value: &[u8]) -> () {
@@ -124,7 +126,7 @@ impl DynamicTable {
         };
         let mut new_start_id = start_id;
         while self.h2_used_size + space > self.h2_limit_size && start_id <= end_id {
-            let cached = self.cache.get(new_start_id).unwrap();
+            let (_, cached) = self.cache.get(new_start_id).unwrap();
             let size = h2_size_from_len(cached.name_len, cached.value_len);
             assert!(size <= self.h2_used_size);
             self.h2_used_size -= size;
@@ -160,11 +162,43 @@ enum MakeRoomResult {
 }
 
 #[derive(Debug)]
-pub struct Item<'a> {
-    pub name: &'a [u8],
-    pub value: Option<&'a [u8]>,
+pub struct Item {
+    pub name: CachedStr,
+    pub value: Option<CachedStr>,
     pub index: usize,
 }
+
+#[derive(Clone)]
+pub struct CachedStr {
+    block: PinnedCacheBlock,
+    ptr: *const u8,
+    len: usize,
+}
+
+impl CachedStr {
+    fn new(block: PinnedCacheBlock, ptr: *const u8, len: usize) -> CachedStr {
+        CachedStr{
+            block,
+            ptr,
+            len,
+        }
+    }
+}
+
+impl Sliceable<u8> for CachedStr {
+    fn as_slice(&self) -> &[u8] {
+        unsafe {
+            slice::from_raw_parts(self.ptr, self.len)
+        }
+    }
+}
+
+impl Debug for CachedStr {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        self.as_slice().fmt(f)
+    }
+}
+
 
 type SeqId = u64;
 
@@ -223,15 +257,23 @@ impl Cache {
         }
     }
 
-    fn get(&self, seq_id: SeqId) -> Option<CacheItem> {
+    fn get(&self, seq_id: SeqId) -> Option<(PinnedCacheBlock, CacheItem)> {
         for block in self.iter() {
-            match block.get_last_seq_id() {
+            let ref_blk = ref_cache_block_from_pinned(&block);
+            match ref_blk.get_last_seq_id() {
                 None => {
                     return None;
                 },
                 Some(last_seq_id) => {
                     if seq_id <= last_seq_id {
-                        return block.get(seq_id);
+                        match ref_blk.get(seq_id) {
+                            None => {
+                                return None;
+                            },
+                            Some(x) => {
+                                return Some((block.clone(), x));
+                            }
+                        }
                     }
                 }
             };
@@ -242,6 +284,7 @@ impl Cache {
     fn seek_with_name(&self, name: &[u8]) -> Option<SeqId> {
         let name_digest = digest_name(name);
         for block in self.iter() {
+            let block = ref_cache_block_from_pinned(&block);
             match block.seek_with_name(name_digest, name) {
                 Some(ref item) => {
                     return Some(item.seq_id);
@@ -255,6 +298,7 @@ impl Cache {
     fn seek_with_name_value(&self, name: &[u8], value: &[u8]) -> Option<SeqId> {
         let (name_digest, name_value_digest) = digest_name_value(name, value);
         for block in self.iter() {
+            let block = ref_cache_block_from_pinned(&block);
             match block.seek_with_name_value(
                 name_digest, name,
                 name_value_digest, value) {
@@ -301,7 +345,6 @@ impl Cache {
 }
 
 struct CacheBlockIter<'a> {
-    cur_block: Option<PinnedCacheBlock>,
     nxt_block: Option<PinnedCacheBlock>,
     _phantom: PhantomData<&'a PinnedCacheBlock>,
 }
@@ -309,7 +352,6 @@ struct CacheBlockIter<'a> {
 impl<'a> CacheBlockIter<'a> {
     fn new(first: PinnedCacheBlock) -> CacheBlockIter<'a> {
         CacheBlockIter{
-            cur_block: None,
             nxt_block: Some(first),
             _phantom: PhantomData,
         }
@@ -317,26 +359,21 @@ impl<'a> CacheBlockIter<'a> {
 }
 
 impl<'a> Iterator for CacheBlockIter<'a> {
-    type Item = &'a CacheBlock;
+    type Item = PinnedCacheBlock;
 
-    fn next(&mut self) -> Option<&'a CacheBlock> {
+    fn next(&mut self) -> Option<PinnedCacheBlock> {
         if self.nxt_block.is_none() {
             None
         } else {
-            self.cur_block = None;
-            swap(&mut self.cur_block, &mut self.nxt_block);
-            let cur_block: *const CacheBlock = {
-                let blk = self.cur_block.as_ref();
+            let mut cur_block = None;
+            swap(&mut cur_block, &mut self.nxt_block);
+            {
+                let blk = cur_block.as_ref();
                 let blk = blk.unwrap();
                 let blk = ref_cache_block_from_pinned(blk);
-                blk as *const CacheBlock
-            };
-            self.nxt_block = unsafe {
-                (*cur_block).next_block.clone()
-            };
-            unsafe {
-                Some(&*cur_block)
+                self.nxt_block = blk.next_block.clone();
             }
+            cur_block
         }
     }
 }
@@ -523,6 +560,30 @@ impl CacheBlock {
     }
 }
 
+impl Debug for CacheBlock {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        f.write_fmt(format_args!(
+            "CacheBlock@{:p}(next: {:?}, buffer: {}, used: {}, items: {}, last_seq_id: {:?})",
+            self as *const CacheBlock,
+            match self.next_block {
+                None => None,
+                Some(ref x) => {
+                    let x = x.as_ref();
+                    let x = x.get_ref();
+                    let x = x.borrow();
+                    let x = &*x;
+                    let x = x as *const CacheBlock;
+                    Some(format!("{:p}", x))
+                }
+            },
+            self.buffer.len(),
+            (self.begin_of_unused as usize) - (self.buffer.as_ptr() as usize),
+            self.index_on_name_value.len(),
+            self.last_seq_id,
+        ))
+    }
+}
+
 #[derive(Debug, Clone)]
 struct CacheItem {
     seq_id: SeqId,
@@ -646,10 +707,10 @@ mod test {
         dyntbl.prepend(KEY1, VALUE1);
         dyntbl.prepend(KEY2, VALUE2);
         assert_eq!(dyntbl.len(), 2);
-        assert_eq!(dyntbl.get(0).unwrap().name, KEY2);
-        assert_eq!(dyntbl.get(0).unwrap().value.unwrap(), VALUE2);
-        assert_eq!(dyntbl.get(1).unwrap().name, KEY1);
-        assert_eq!(dyntbl.get(1).unwrap().value.unwrap(), VALUE1);
+        assert_eq!(dyntbl.get(0).unwrap().name.as_slice(), KEY2);
+        assert_eq!(dyntbl.get(0).unwrap().value.unwrap().as_slice(), VALUE2);
+        assert_eq!(dyntbl.get(1).unwrap().name.as_slice(), KEY1);
+        assert_eq!(dyntbl.get(1).unwrap().value.unwrap().as_slice(), VALUE1);
         assert!(dyntbl.get(2).is_none());
     }
 
@@ -668,8 +729,8 @@ mod test {
         
         dyntbl.prepend(KEY1, VALUE1);
         assert_eq!(dyntbl.len(), 1);
-        assert_eq!(dyntbl.get(0).unwrap().name, KEY1);
-        assert_eq!(dyntbl.get(0).unwrap().value.unwrap(), VALUE1);
+        assert_eq!(dyntbl.get(0).unwrap().name.as_slice(), KEY1);
+        assert_eq!(dyntbl.get(0).unwrap().value.unwrap().as_slice(), VALUE1);
     }
 
     #[test]
@@ -734,18 +795,20 @@ mod test {
 
     #[test]
     fn cache_insert_in_1st_block() {
-        // large enough to hold a key-value, but not large enough to hold 2.
+        // large enough to hold a pair of key-value, 
+        // but not large enough to hold two of them.
         const BLOCK_SIZE: usize = 15;
         let mut trial = Cache::new(BLOCK_SIZE);
         trial.append(1, b"hello", b"world");
-        let i1 = trial.get(1).unwrap();
+        let (holder, i1) = trial.get(1).unwrap();
         assert_eq!(get_cached_name(&trial, &i1), b"hello");
         assert_eq!(get_cached_value(&trial, &i1), b"world");
     }
 
     #[test]
     fn cache_insert_new_block() {
-        // large enough to hold a key-value, but not large enough to hold 2.
+        // large enough to hold a pair of key-value, 
+        // but not large enough to hold two of them.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
@@ -754,17 +817,18 @@ mod test {
         let mut trial = Cache::new(BLOCK_SIZE);
         trial.append(1, KEY0, VALUE0);
         trial.append(2, KEY1, VALUE1);
-        let i1 = trial.get(1).unwrap();
+        let (holder, i1) = trial.get(1).unwrap();
         assert_eq!(get_cached_name(&trial, &i1), KEY0);
         assert_eq!(get_cached_value(&trial, &i1), VALUE0);
-        let i2 = trial.get(2).unwrap();
+        let (holder, i2) = trial.get(2).unwrap();
         assert_eq!(get_cached_name(&trial, &i2), KEY1);
         assert_eq!(get_cached_value(&trial, &i2), VALUE1);
     }
 
     #[test]
     fn cache_truncate_0() {
-        // large enough to hold a key-value, but not large enough to hold 2.
+        // large enough to hold a pair of key-value, 
+        // but not large enough to hold two of them.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
@@ -781,14 +845,15 @@ mod test {
         assert!(i0.is_none());
         let i1 = trial.get(1);
         assert!(i1.is_none());
-        let i2 = trial.get(2).unwrap();
+        let (holder, i2) = trial.get(2).unwrap();
         assert_eq!(get_cached_name(&trial, &i2), KEY2);
         assert_eq!(get_cached_value(&trial, &i2), VALUE2);
     }
 
     #[test]
     fn cache_truncate_1() {
-        // large enough to hold a key-value, but not large enough to hold 2.
+        // large enough to hold a pair of key-value, 
+        // but not large enough to hold two of them.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
@@ -798,14 +863,15 @@ mod test {
         trial.append(0, KEY0, VALUE0);
         trial.truncate(0);
         trial.append(1, KEY1, VALUE1);
-        let i1 = trial.get(1).unwrap();
+        let (holder, i1) = trial.get(1).unwrap();
         assert_eq!(get_cached_name(&trial, &i1), KEY1);
         assert_eq!(get_cached_value(&trial, &i1), VALUE1);
     }
 
     #[test]
     fn cacheblockiterator_1() {
-        // large enough to hold a key-value, but not large enough to hold 2.
+        // large enough to hold a pair of key-value, 
+        // but not large enough to hold two of them.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
@@ -815,7 +881,9 @@ mod test {
         {
             let v = iter.next();
             assert!(v.is_some());
-            let v = v.unwrap().get(0);
+            let v = v.unwrap();
+            let v = ref_cache_block_from_pinned(&v);
+            let v = v.get(0);
             assert!(v.is_some());
             let v = v.unwrap();
             assert_eq!(get_cached_name(&trial, &v), KEY0);
@@ -829,7 +897,8 @@ mod test {
 
     #[test]
     fn cacheblockiterator_2() {
-        // large enough to hold a key-value, but not large enough to hold 2.
+        // large enough to hold a pair of key-value, 
+        // but not large enough to hold two of them.
         const BLOCK_SIZE: usize = 15;
         const KEY0: &[u8] = b"hello0";
         const VALUE0: &[u8] = b"world0";
@@ -842,7 +911,9 @@ mod test {
         {
             let v = iter.next();
             assert!(v.is_some());
-            let v = v.unwrap().get(0);
+            let v = v.unwrap();
+            let v = ref_cache_block_from_pinned(&v);
+            let v = v.get(0);
             assert!(v.is_some());
             let v = v.unwrap();
             assert_eq!(get_cached_name(&trial, &v), KEY0);
@@ -851,7 +922,9 @@ mod test {
         {
             let v = iter.next();
             assert!(v.is_some());
-            let v = v.unwrap().get(1);
+            let v = v.unwrap();
+            let v = ref_cache_block_from_pinned(&v);
+            let v = v.get(1);
             assert!(v.is_some());
             let v = v.unwrap();
             assert_eq!(get_cached_name(&trial, &v), KEY1);

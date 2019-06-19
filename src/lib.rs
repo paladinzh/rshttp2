@@ -24,8 +24,5 @@ pub use connection::Connection;
 
 mod hpack;
 
-mod maybe_owned_slice;
-use maybe_owned_slice::MaybeOwnedSlice;
-
 mod sliceable;
 use sliceable::Sliceable;
