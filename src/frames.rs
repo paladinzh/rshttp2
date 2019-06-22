@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use super::*;
 use super::parsers::*;
 use super::serializers::*;
@@ -42,12 +43,13 @@ pub enum Frame {
 
 impl Frame {
     pub fn parse(
+        conn: &Arc<Connection>,
         header: &FrameHeader,
         body: Vec<u8>,
     ) -> Result<Frame, Error> {
         match header.frame_type {
             1 => {
-                let f = HeadersFrame::parse(header, body)?;
+                let f = HeadersFrame::parse(conn, header, body)?;
                 Ok(Frame::Headers(f))
             },
             2 => {
@@ -95,6 +97,7 @@ pub struct PriorityInHeadersFrame {
 
 impl HeadersFrame {
     fn parse(
+        conn: &Arc<Connection>,
         header: &FrameHeader,
         body: Vec<u8>,
     ) -> Result<HeadersFrame, Error> {
@@ -156,6 +159,15 @@ impl HeadersFrame {
         {
             let (head, tail) = body.split_at(body.len() - pad_len);
             frame.header_block = head.to_vec();
+            {
+                let mut input: Vec<u8> = frame.header_block.clone();
+                let mut decoder = conn.as_ref().header_decoder.lock().unwrap();
+                while !input.is_empty() {
+                    let (remain, result) = decoder.parse_header_field(input.as_slice()).unwrap();
+                    debug!("GOT A HEADER FIELD: {:?}", result);
+                    input = remain.to_vec();
+                }
+            }
             if padded {
                 frame.padding = Some(tail.to_vec());
             }

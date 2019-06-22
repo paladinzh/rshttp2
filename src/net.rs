@@ -193,7 +193,7 @@ fn read_frame<R: 'static + Send + AsyncRead>(
                 })
                 .and_then(move |(socket_in, body)| {
                     debug!("succeed to read payload of a frame with {} bytes", body.len());
-                    let frame = Frame::parse(&frame_header, body);
+                    let frame = Frame::parse(&conn, &frame_header, body);
                     match frame {
                         Ok(f) => Ok((socket_in, conn, f)),
                         Err(err) => Err(err),

@@ -14,6 +14,7 @@ pub struct Connection {
     remote_h2_settings: Mutex<Settings>,
     to_close: AtomicBool,
     last_received_stream_id: AtomicU32,
+    pub header_decoder: Mutex<hpack::Decoder>,
 }
 
 struct FnBox(Box<dyn Fn(Arc<Connection>, Frame) -> ()>);
@@ -38,7 +39,11 @@ impl Connection {
             my_h2_settings: Mutex::new(Settings::new()),
             remote_h2_settings: Mutex::new(Settings::new()),
             to_close: AtomicBool::new(false),
-            last_received_stream_id: AtomicU32::new(0)})
+            last_received_stream_id: AtomicU32::new(0),
+            header_decoder: Mutex::new(
+                hpack::Decoder::with_capacity(
+                    Settings::new().get(SettingKey::HeaderTableSize) as usize)),
+        })
     }
 
     pub fn encoded_id(&self) -> String {

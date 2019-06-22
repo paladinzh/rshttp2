@@ -21,6 +21,8 @@ pub struct DynamicTable {
     seq_id_range: Option<(SeqId, SeqId)>,
 }
 
+unsafe impl Send for DynamicTable {}
+
 impl DynamicTable {
     pub fn with_capacity(cap: usize) -> DynamicTable {
         DynamicTable{

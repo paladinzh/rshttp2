@@ -6,7 +6,7 @@ mod maybe_owned_slice;
 mod static_table;
 mod string;
 
-
+use std::fmt::{Debug, Formatter};
 use dynamic_table::*;
 use int::*;
 use maybe_owned_slice::*;
@@ -28,7 +28,7 @@ impl Decoder {
     pub fn parse_header_field<'a>(
         &'a mut self,
         input: &'a [u8],
-    ) -> Result<(&'a [u8], DecodeResult<'a>), &'static str> {
+    ) -> Result<(&'a [u8], HeaderField<'a>), &'static str> {
         if input.is_empty() {
             return Err("shortage of input on deserialization.");
         }
@@ -46,7 +46,7 @@ impl Decoder {
                     return Err("request a indexed no-value header field.");
                 }
                 let value = value.unwrap();
-                Ok((rem, DecodeResult::Normal((name, value))))
+                Ok((rem, HeaderField::Index((name, value))))
             },
             x if check_prefix(x, LITERAL_WITH_INDEXING) => {
                 let (rem, idx) = parse_uint(input, 6)?;
@@ -54,12 +54,12 @@ impl Decoder {
                     let (name, _) = self.get_from_index_table(idx as usize)?;
                     let (rem, value) = parse_string(rem)?;
                     self.dyntbl.prepend(name.as_slice(), value.as_slice());
-                    Ok((rem, DecodeResult::Normal((name, value))))
+                    Ok((rem, HeaderField::Index((name, value))))
                 } else {
                     let (rem, name) = parse_string(rem)?;
                     let (rem, value) = parse_string(rem)?;
                     self.dyntbl.prepend(name.as_slice(), value.as_slice());
-                    Ok((rem, DecodeResult::Normal((name, value))))
+                    Ok((rem, HeaderField::Index((name, value))))
                 }
             },
             x if check_prefix(x, LITERAL_WITHOUT_INDEXING) => {
@@ -67,11 +67,11 @@ impl Decoder {
                 if idx > 0 {
                     let (name, _) = self.get_from_index_table(idx as usize)?;
                     let (rem, value) = parse_string(rem)?;
-                    Ok((rem, DecodeResult::Normal((name, value))))
+                    Ok((rem, HeaderField::NotIndex((name, value))))
                 } else {
                     let (rem, name) = parse_string(rem)?;
                     let (rem, value) = parse_string(rem)?;
-                    Ok((rem, DecodeResult::Normal((name, value))))
+                    Ok((rem, HeaderField::NotIndex((name, value))))
                 }
             },
             x if check_prefix(x, LITERAL_NEVER_INDEXING) => {
@@ -81,13 +81,13 @@ impl Decoder {
                     let (rem, value) = parse_string(rem)?;
                     let (raw, _) = input.split_at(input.len() - rem.len());
                     let raw = MaybeOwnedSlice::new_with_slice(raw);
-                    Ok((rem, DecodeResult::NeverIndex((name, value, raw))))
+                    Ok((rem, HeaderField::NeverIndex((name, value, raw))))
                 } else {
                     let (rem, name) = parse_string(rem)?;
                     let (rem, value) = parse_string(rem)?;
                     let (raw, _) = input.split_at(input.len() - rem.len());
                     let raw = MaybeOwnedSlice::new_with_slice(raw);
-                    Ok((rem, DecodeResult::NeverIndex((name, value, raw))))
+                    Ok((rem, HeaderField::NeverIndex((name, value, raw))))
                 }
             },
             _ => unreachable!(),
@@ -95,10 +95,64 @@ impl Decoder {
     }
 }
 
-#[derive(Debug)]
-pub enum DecodeResult<'a> {
-    Normal((MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>)),
+pub enum HeaderField<'a> {
+    Index((MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>)),
+    NotIndex((MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>)),
     NeverIndex((MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>)),
+}
+
+impl<'a> Debug for HeaderField<'a> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        let mut res = String::new();
+        match self {
+            HeaderField::Index((name, value)) => {
+                res.push_str("HeaderField::Index(");
+                fmt_bytes(&mut res, name.as_slice());
+                res.push('=');
+                fmt_bytes(&mut res, value.as_slice());
+            },
+            HeaderField::NotIndex((name, value)) => {
+                res.push_str("HeaderField::NotIndex(");
+                fmt_bytes(&mut res, name.as_slice());
+                res.push('=');
+                fmt_bytes(&mut res, value.as_slice());
+            },
+            HeaderField::NeverIndex((name, value, raw)) => {
+                res.push_str("HeaderField::NeverIndex(");
+                fmt_bytes(&mut res, name.as_slice());
+                res.push('=');
+                fmt_bytes(&mut res, value.as_slice());
+            }
+        }
+        res.push(')');
+        f.write_str(res.as_str())?;
+        Ok(())
+    }
+
+}
+
+fn fmt_bytes(out: &mut String, bytes: &[u8]) -> () {
+    for b in bytes {
+        let b = *b;
+        if b >= 32u8 && b < 128u8 {
+            out.push(char::from(b));
+        } else {
+            out.push_str("\\x");
+            out.push(hex(b >> 4));
+            out.push(hex(b & 0x0F));
+        }
+    }
+}
+
+fn hex(b: u8) -> char {
+    const ZERO: u8 = 48u8;
+    const A: u8 = 65u8;
+    assert!(b < 0x10);
+    if b < 10 {
+        char::from(b + ZERO)
+    } else {
+        char::from(b + A)
+    }
 }
 
 impl Decoder {
