@@ -53,87 +53,69 @@ impl Decoder {
             },
             x if check_prefix(x, LITERAL_WITH_INDEXING) => {
                 let (rem, idx) = parse_uint(input, 6)?;
-                if idx > 0 {
+                let (rem, name) = if idx > 0 {
                     let (name, _) = self.get_from_index_table(idx as usize)?;
-                    let (rem, value) = parse_string(rem)?;
-                    let item = self.dyntbl.prepend(name.as_slice(), value.as_slice());
-                    match item {
-                        Some(item) => {
-                            Ok((rem, HeaderField::Index((
-                                SelfOwnedSlice::new_with_cached_str(&item.name),
-                                SelfOwnedSlice::new_with_cached_str(&item.value.unwrap()),
-                            ))))
-                        },
-                        None => {
-                            Ok((rem, HeaderField::Index((
-                                name,
-                                SelfOwnedSlice::new_with_maybe_owned_slice(value),
-                            ))))
-                        }
-                    }
+                    (rem, name)
                 } else {
                     let (rem, name) = parse_string(rem)?;
-                    let (rem, value) = parse_string(rem)?;
-                    let item = self.dyntbl.prepend(name.as_slice(), value.as_slice());
-                    match item {
-                        Some(item) => {
-                            Ok((rem, HeaderField::Index((
-                                SelfOwnedSlice::new_with_cached_str(&item.name),
-                                SelfOwnedSlice::new_with_cached_str(&item.value.unwrap()),
-                            ))))
-                        },
-                        None => {
-                            Ok((rem, HeaderField::Index((
-                                SelfOwnedSlice::new_with_maybe_owned_slice(name),
-                                SelfOwnedSlice::new_with_maybe_owned_slice(value),
-                            ))))
-                        }
+                    // could uselessly copy `name`.
+                    // but it is of little possiblity.
+                    (rem, SelfOwnedSlice::new_with_maybe_owned_slice(name))
+                };
+                let (rem, value) = parse_string(rem)?;
+                let item = self.dyntbl.prepend(name.as_slice(), value.as_slice());
+                match item {
+                    Some(item) => {
+                        Ok((rem, HeaderField::Index((
+                            SelfOwnedSlice::new_with_cached_str(&item.name),
+                            SelfOwnedSlice::new_with_cached_str(&item.value.unwrap()),
+                        ))))
+                    },
+                    None => {
+                        Ok((rem, HeaderField::Index((
+                            name,
+                            SelfOwnedSlice::new_with_maybe_owned_slice(value),
+                        ))))
                     }
                 }
             },
             x if check_prefix(x, LITERAL_WITHOUT_INDEXING) => {
-                let (rem, idx) = parse_uint(input, 4)?;
-                if idx > 0 {
-                    let (name, _) = self.get_from_index_table(idx as usize)?;
-                    let (rem, value) = parse_string(rem)?;
-                    Ok((rem, HeaderField::NotIndex((
-                        name,
-                        SelfOwnedSlice::new_with_maybe_owned_slice(value),
-                    ))))
-                } else {
-                    let (rem, name) = parse_string(rem)?;
-                    let (rem, value) = parse_string(rem)?;
-                    Ok((rem, HeaderField::NotIndex((
-                        SelfOwnedSlice::new_with_maybe_owned_slice(name),
-                        SelfOwnedSlice::new_with_maybe_owned_slice(value),
-                    ))))
-                }
+                let (rem, name, value) = self.parse_without_indexing(input)?;
+                Ok((rem, 
+                    HeaderField::NotIndex((name, value)),
+                ))
             },
             x if check_prefix(x, LITERAL_NEVER_INDEXING) => {
-                let (rem, idx) = parse_uint(input, 4)?;
-                if idx > 0 {
-                    let (name, _) = self.get_from_index_table(idx as usize)?;
-                    let (rem, value) = parse_string(rem)?;
-                    let (raw, _) = input.split_at(input.len() - rem.len());
-                    let raw = SelfOwnedSlice::new_with_slice(raw);
-                    Ok((rem, HeaderField::NeverIndex((
-                        name, 
-                        SelfOwnedSlice::new_with_maybe_owned_slice(value),
-                        raw,
-                    ))))
-                } else {
-                    let (rem, name) = parse_string(rem)?;
-                    let (rem, value) = parse_string(rem)?;
-                    let (raw, _) = input.split_at(input.len() - rem.len());
-                    let raw = SelfOwnedSlice::new_with_slice(raw);
-                    Ok((rem, HeaderField::NeverIndex((
-                        SelfOwnedSlice::new_with_maybe_owned_slice(name),
-                        SelfOwnedSlice::new_with_maybe_owned_slice(value),
-                        raw,
-                    ))))
-                }
+                let (rem, name, value) = self.parse_without_indexing(input)?;
+                let (raw, _) = input.split_at(input.len() - rem.len());
+                let raw = SelfOwnedSlice::new_with_slice(raw);
+                Ok((rem, 
+                    HeaderField::NeverIndex((name, value, raw)),
+                ))
             },
             _ => unreachable!(),
+        }
+    }
+
+    fn parse_without_indexing<'a, 'b>(
+        &'a self,
+        input: &'b [u8],
+    ) -> Result<(&'b [u8], SelfOwnedSlice, SelfOwnedSlice), &'static str> {
+        let (rem, idx) = parse_uint(input, 4)?;
+        if idx > 0 {
+            let (name, _) = self.get_from_index_table(idx as usize)?;
+            let (rem, value) = parse_string(rem)?;
+            Ok((rem, 
+                name,
+                SelfOwnedSlice::new_with_maybe_owned_slice(value),
+            ))
+        } else {
+            let (rem, name) = parse_string(rem)?;
+            let (rem, value) = parse_string(rem)?;
+            Ok((rem,
+                SelfOwnedSlice::new_with_maybe_owned_slice(name),
+                SelfOwnedSlice::new_with_maybe_owned_slice(value),
+            ))
         }
     }
 }
