@@ -51,19 +51,25 @@ impl DynamicTable {
         Some(res)
     }
 
-    pub fn prepend(&mut self, name: &[u8], value: &[u8]) -> () {
+    pub fn prepend(&mut self, name: &[u8], value: &[u8]) -> Option<Item> {
         let size = h2_size(name, value);
         let room = self.make_room(size);
         match room {
-            MakeRoomResult::NoRoom => (),
+            MakeRoomResult::NoRoom => None,
             MakeRoomResult::Enough => {
                 self.h2_used_size += size;
                 let seq_id = self.seq_id_gen.next();
-                self.cache.append(seq_id, name, value);
                 self.seq_id_range = match self.seq_id_range {
                     None => Some((seq_id, seq_id)),
                     Some((s, _)) => Some((s, seq_id)),
                 };
+                let (block, item) = self.cache.append(seq_id, name, value);
+                let res = Item{
+                    name: CachedStr::new(block.clone(), item.name, item.name_len),
+                    value: Some(CachedStr::new(block, item.value, item.value_len)),
+                    index: 0,
+                };
+                Some(res)
             }
         }
     }
@@ -227,34 +233,40 @@ type PinnedCacheBlock = Pin<Arc<RefCell<CacheBlock>>>;
 
 struct Cache {
     first_block: PinnedCacheBlock,
-    last_block: *mut CacheBlock,
+    last_block: PinnedCacheBlock,
     size_for_next_block: usize,
 }
 
 impl Cache {
     fn new(block_size: usize) -> Cache {
-        let mut cache = Cache{
-            first_block: CacheBlock::new(block_size),
-            last_block: ptr::null_mut(),
+        let block = CacheBlock::new(block_size);
+        Cache{
+            first_block: block.clone(),
+            last_block: block,
             size_for_next_block: block_size,
-        };
-        {
-            let last_block = mutref_cache_block_from_pinned(&cache.first_block);
-            cache.last_block = last_block as *mut CacheBlock;
         }
-        cache
     }
 
-    fn append(&mut self, seq_id: SeqId, name: &[u8], value: &[u8]) -> () {
-        let last_block: &mut CacheBlock = unsafe {&mut *self.last_block};
+    fn append(
+        &mut self,
+        seq_id: SeqId,
+        name: &[u8],
+        value: &[u8],
+    ) -> (PinnedCacheBlock, CacheItem) {
+        let last_block = mutref_cache_block_from_pinned(&self.last_block);
         match last_block.append(seq_id, name, value) {
-            Some(_) => (),
+            Some(x) => (self.last_block.clone(), x),
             None => {
-                let new_block = last_block.set_next_block(
-                    CacheBlock::new(self.size_for_next_block));
-                let x = new_block.append(seq_id, name, value);
-                assert!(x.is_some());
-                self.last_block = new_block as *mut CacheBlock;
+                let new_block = CacheBlock::new(self.size_for_next_block);
+                last_block.set_next_block(new_block.clone());
+                self.last_block = new_block.clone();
+                let x = {
+                    let new_block = mutref_cache_block_from_pinned(&new_block);
+                    let x = new_block.append(seq_id, name, value);
+                    assert!(x.is_some());
+                    x.unwrap()
+                };
+                (new_block, x)
             }
         }
     }
@@ -537,28 +549,9 @@ impl CacheBlock {
         self.last_seq_id
     }
 
-    fn set_next_block(&mut self, next_block: PinnedCacheBlock) -> &mut CacheBlock {
+    fn set_next_block(&mut self, next_block: PinnedCacheBlock) -> () {
         assert!(self.next_block.is_none());
         self.next_block = Some(next_block);
-        let res = {
-            let x = self.next_block.as_ref();
-            let x = x.unwrap();
-            let x = mutref_cache_block_from_pinned(x);
-            x as *mut CacheBlock
-        };
-        unsafe {
-            &mut *res
-        }
-    }
-
-    fn get_next_block<'a>(&'a self) -> Option<&'a CacheBlock> {
-        match self.next_block {
-            None => None,
-            Some(ref nxt) => {
-                let x = ref_cache_block_from_pinned(nxt);
-                Some(x)
-            }
-        }
     }
 }
 

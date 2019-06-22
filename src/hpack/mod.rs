@@ -2,14 +2,14 @@ mod dynamic_table;
 mod int;
 mod huffman;
 mod huffman_codes;
-mod maybe_owned_slice;
+mod self_owned_slice;
 mod static_table;
 mod string;
 
 use std::fmt::{Debug, Formatter};
 use dynamic_table::*;
 use int::*;
-use maybe_owned_slice::*;
+use self_owned_slice::*;
 use string::*;
 use static_table::*;
 use super::*;
@@ -25,10 +25,10 @@ impl Decoder {
         }
     }
 
-    pub fn parse_header_field<'a>(
+    pub fn parse_header_field<'a, 'b>(
         &'a mut self,
-        input: &'a [u8],
-    ) -> Result<(&'a [u8], HeaderField<'a>), &'static str> {
+        input: &'b [u8],
+    ) -> Result<(&'b [u8], HeaderField), &'static str> {
         if input.is_empty() {
             return Err("shortage of input on deserialization.");
         }
@@ -41,25 +41,54 @@ impl Decoder {
             x if check_prefix(x, INDEXED) => {
                 let (rem, idx) = parse_uint(input, 7)?;
                 let (name, value) = self.get_from_index_table(idx as usize)?;
-                if value.is_none() {
-                    warn!("request a indexed no-value header field. index: {}", idx);
-                    return Err("request a indexed no-value header field.");
+                match value {
+                    None => {
+                        warn!("request a indexed no-value header field. index: {}", idx);
+                        Err("request a indexed no-value header field.")
+                    },
+                    Some(value) => {
+                        Ok((rem, HeaderField::Index((name, value))))
+                    },
                 }
-                let value = value.unwrap();
-                Ok((rem, HeaderField::Index((name, value))))
             },
             x if check_prefix(x, LITERAL_WITH_INDEXING) => {
                 let (rem, idx) = parse_uint(input, 6)?;
                 if idx > 0 {
                     let (name, _) = self.get_from_index_table(idx as usize)?;
                     let (rem, value) = parse_string(rem)?;
-                    self.dyntbl.prepend(name.as_slice(), value.as_slice());
-                    Ok((rem, HeaderField::Index((name, value))))
+                    let item = self.dyntbl.prepend(name.as_slice(), value.as_slice());
+                    match item {
+                        Some(item) => {
+                            Ok((rem, HeaderField::Index((
+                                SelfOwnedSlice::new_with_cached_str(&item.name),
+                                SelfOwnedSlice::new_with_cached_str(&item.value.unwrap()),
+                            ))))
+                        },
+                        None => {
+                            Ok((rem, HeaderField::Index((
+                                name,
+                                SelfOwnedSlice::new_with_maybe_owned_slice(value),
+                            ))))
+                        }
+                    }
                 } else {
                     let (rem, name) = parse_string(rem)?;
                     let (rem, value) = parse_string(rem)?;
-                    self.dyntbl.prepend(name.as_slice(), value.as_slice());
-                    Ok((rem, HeaderField::Index((name, value))))
+                    let item = self.dyntbl.prepend(name.as_slice(), value.as_slice());
+                    match item {
+                        Some(item) => {
+                            Ok((rem, HeaderField::Index((
+                                SelfOwnedSlice::new_with_cached_str(&item.name),
+                                SelfOwnedSlice::new_with_cached_str(&item.value.unwrap()),
+                            ))))
+                        },
+                        None => {
+                            Ok((rem, HeaderField::Index((
+                                SelfOwnedSlice::new_with_maybe_owned_slice(name),
+                                SelfOwnedSlice::new_with_maybe_owned_slice(value),
+                            ))))
+                        }
+                    }
                 }
             },
             x if check_prefix(x, LITERAL_WITHOUT_INDEXING) => {
@@ -67,11 +96,17 @@ impl Decoder {
                 if idx > 0 {
                     let (name, _) = self.get_from_index_table(idx as usize)?;
                     let (rem, value) = parse_string(rem)?;
-                    Ok((rem, HeaderField::NotIndex((name, value))))
+                    Ok((rem, HeaderField::NotIndex((
+                        name,
+                        SelfOwnedSlice::new_with_maybe_owned_slice(value),
+                    ))))
                 } else {
                     let (rem, name) = parse_string(rem)?;
                     let (rem, value) = parse_string(rem)?;
-                    Ok((rem, HeaderField::NotIndex((name, value))))
+                    Ok((rem, HeaderField::NotIndex((
+                        SelfOwnedSlice::new_with_maybe_owned_slice(name),
+                        SelfOwnedSlice::new_with_maybe_owned_slice(value),
+                    ))))
                 }
             },
             x if check_prefix(x, LITERAL_NEVER_INDEXING) => {
@@ -80,14 +115,22 @@ impl Decoder {
                     let (name, _) = self.get_from_index_table(idx as usize)?;
                     let (rem, value) = parse_string(rem)?;
                     let (raw, _) = input.split_at(input.len() - rem.len());
-                    let raw = MaybeOwnedSlice::new_with_slice(raw);
-                    Ok((rem, HeaderField::NeverIndex((name, value, raw))))
+                    let raw = SelfOwnedSlice::new_with_slice(raw);
+                    Ok((rem, HeaderField::NeverIndex((
+                        name, 
+                        SelfOwnedSlice::new_with_maybe_owned_slice(value),
+                        raw,
+                    ))))
                 } else {
                     let (rem, name) = parse_string(rem)?;
                     let (rem, value) = parse_string(rem)?;
                     let (raw, _) = input.split_at(input.len() - rem.len());
-                    let raw = MaybeOwnedSlice::new_with_slice(raw);
-                    Ok((rem, HeaderField::NeverIndex((name, value, raw))))
+                    let raw = SelfOwnedSlice::new_with_slice(raw);
+                    Ok((rem, HeaderField::NeverIndex((
+                        SelfOwnedSlice::new_with_maybe_owned_slice(name),
+                        SelfOwnedSlice::new_with_maybe_owned_slice(value),
+                        raw,
+                    ))))
                 }
             },
             _ => unreachable!(),
@@ -95,13 +138,13 @@ impl Decoder {
     }
 }
 
-pub enum HeaderField<'a> {
-    Index((MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>)),
-    NotIndex((MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>)),
-    NeverIndex((MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>, MaybeOwnedSlice<'a>)),
+pub enum HeaderField {
+    Index((SelfOwnedSlice, SelfOwnedSlice)),
+    NotIndex((SelfOwnedSlice, SelfOwnedSlice)),
+    NeverIndex((SelfOwnedSlice, SelfOwnedSlice, SelfOwnedSlice)),
 }
 
-impl<'a> Debug for HeaderField<'a> {
+impl Debug for HeaderField {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         let mut res = String::new();
         match self {
@@ -160,7 +203,7 @@ impl Decoder {
     fn get_from_index_table(
         &self,
         idx: usize,
-    ) -> Result<(MaybeOwnedSlice<'static>, Option<MaybeOwnedSlice<'static>>), &'static str> {
+    ) -> Result<(SelfOwnedSlice, Option<SelfOwnedSlice>), &'static str> {
         if idx < RAW_TABLE.len() {
             self.get_from_static_table(idx)
         } else {
@@ -171,15 +214,15 @@ impl Decoder {
     fn get_from_static_table(
         &self,
         idx: usize,
-    ) -> Result<(MaybeOwnedSlice<'static>, Option<MaybeOwnedSlice<'static>>), &'static str> {
+    ) -> Result<(SelfOwnedSlice, Option<SelfOwnedSlice>), &'static str> {
         if idx < 1 {
             warn!("request a out-of-index header field. index: {}", idx);
             return Err("index out of space.");
         }
         let item = &RAW_TABLE[idx];
-        let name = MaybeOwnedSlice::new_with_slice(item.name);
+        let name = SelfOwnedSlice::new_with_slice(item.name);
         let value = match item.value {
-            Some(x) => Some(MaybeOwnedSlice::new_with_slice(x)),
+            Some(x) => Some(SelfOwnedSlice::new_with_slice(x)),
             None => None,
         };
         Ok((name, value))
@@ -188,16 +231,16 @@ impl Decoder {
     fn get_from_dynamic_table(
         &self,
         idx: usize,
-    ) -> Result<(MaybeOwnedSlice<'static>, Option<MaybeOwnedSlice<'static>>), &'static str> {
+    ) -> Result<(SelfOwnedSlice, Option<SelfOwnedSlice>), &'static str> {
         if idx >= RAW_TABLE.len() +  self.dyntbl.len() {
             warn!("request a out-of-index header field. index: {}", idx);
             return Err("index out of space.");
         }
         let idx = idx - RAW_TABLE.len();
         let item = self.dyntbl.get(idx).unwrap();
-        let name = MaybeOwnedSlice::new_with_cached_str(&item.name);
+        let name = SelfOwnedSlice::new_with_cached_str(&item.name);
         let value = match item.value {
-            Some(ref x) => Some(MaybeOwnedSlice::new_with_cached_str(x)),
+            Some(ref x) => Some(SelfOwnedSlice::new_with_cached_str(x)),
             None => None,
         };
         Ok((name, value))

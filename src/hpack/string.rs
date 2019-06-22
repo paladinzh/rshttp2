@@ -1,6 +1,5 @@
 use super::huffman;
 use super::int::*;
-use super::MaybeOwnedSlice;
 use super::super::Sliceable;
 
 pub fn serialize_string(out: &mut Vec<u8>, input: &[u8]) -> () {
@@ -36,6 +35,30 @@ pub fn parse_string(input: &[u8]) -> Result<(&[u8], MaybeOwnedSlice), &'static s
         let buf = huffman::decode(buf)?;
         let res = MaybeOwnedSlice::new_with_vec(buf);
         Ok((rem, res))
+    }
+}
+
+pub enum MaybeOwnedSlice<'a> {
+    Slice(&'a [u8]),
+    Vec(Vec<u8>),
+}
+
+impl<'a> MaybeOwnedSlice<'a> {
+    fn new_with_slice(v: &[u8]) -> MaybeOwnedSlice {
+        MaybeOwnedSlice::Slice(v)
+    }
+
+    fn new_with_vec(v: Vec<u8>) -> MaybeOwnedSlice<'static> {
+        MaybeOwnedSlice::Vec(v)
+    }
+}
+
+impl<'a> Sliceable<u8> for MaybeOwnedSlice<'a> {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            MaybeOwnedSlice::Slice(x) => x,
+            MaybeOwnedSlice::Vec(ref x) => x.as_slice(),
+        }
     }
 }
 
