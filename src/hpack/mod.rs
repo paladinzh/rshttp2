@@ -307,7 +307,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecodeResult::Normal((name, value)) => {
+            HeaderField::Index((name, value)) => {
                 assert_eq!(name.as_slice(), b":method");
                 assert_eq!(value.as_slice(), b"GET");
             },
@@ -329,7 +329,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecodeResult::Normal((name, value)) => {
+            HeaderField::Index((name, value)) => {
                 assert_eq!(name.as_slice(), NAME1);
                 assert_eq!(value.as_slice(), VALUE1);
             },
@@ -349,7 +349,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecodeResult::Normal((name, value)) => {
+            HeaderField::Index((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -374,7 +374,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecodeResult::Normal((name, value)) => {
+            HeaderField::Index((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -398,7 +398,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecodeResult::Normal((name, value)) => {
+            HeaderField::NotIndex((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -419,7 +419,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecodeResult::Normal((name, value)) => {
+            HeaderField::NotIndex((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -439,7 +439,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecodeResult::NeverIndex((name, value, raw)) => {
+            HeaderField::NeverIndex((name, value, raw)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
                 assert_eq!(raw.as_slice(), buf.as_slice());
@@ -464,7 +464,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecodeResult::NeverIndex((name, value, raw)) => {
+            HeaderField::NeverIndex((name, value, raw)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
                 assert_eq!(raw.as_slice(), buf.as_slice());
@@ -511,11 +511,15 @@ mod test {
             let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
             assert!(rem.is_empty(), "{:?}=>{:?}", o_name, o_value);
             match res {
-                DecodeResult::Normal((t_name, t_value)) => {
+                HeaderField::Index((t_name, t_value)) => {
                     assert_eq!(t_name.as_slice(), o_name);
                     assert_eq!(t_value.as_slice(), o_value);
                 },
-                DecodeResult::NeverIndex((t_name, t_value, t_raw)) => {
+                HeaderField::NotIndex((t_name, t_value)) => {
+                    assert_eq!(t_name.as_slice(), o_name);
+                    assert_eq!(t_value.as_slice(), o_value);
+                },
+                HeaderField::NeverIndex((t_name, t_value, t_raw)) => {
                     assert_eq!(t_name.as_slice(), o_name);
                     assert_eq!(t_value.as_slice(), o_value);
                     assert_eq!(t_raw.as_slice(), buf.as_slice());

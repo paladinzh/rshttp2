@@ -382,11 +382,11 @@ mod test {
                 values.push((SettingKey::from_h2_id(rnd), 0x12345678u32));
             }
 
-            let f_oracle = Frame::Settings(SettingsFrame::new(ack, values));
+            let f_oracle = SettingsFrame::new(ack, values);
             let mut buf = f_oracle.serialize();
             let header = FrameHeader::parse(&buf[0..9]);
             let buf = buf.split_off(9);
-            let f_trial = Frame::parse(&header, buf);
+            let f_trial = SettingsFrame::parse(&header, buf);
             match f_trial {
                 Ok(f_trial) => assert_eq!(f_trial, f_oracle),
                 Err(err) => assert!(false, "{:?}", err),
@@ -412,16 +412,15 @@ mod test {
     fn goawayframe_serde() {
         let mut rng = random::default();
         for _ in 0..1000 {
-            let mut f = GoAwayFrame::new();
-            f.last_stream_id = rng.read_u64() as u32;
-            f.error_code = error::Code::from_h2_id((rng.read_u64() as usize) % ALL_ERRORS.len());
-            f.debug_info = randomized_vec("abcdefghijklmn.".as_bytes(), '.' as u8);
+            let mut f_oracle = GoAwayFrame::new();
+            f_oracle.last_stream_id = rng.read_u64() as u32;
+            f_oracle.error_code = error::Code::from_h2_id((rng.read_u64() as usize) % ALL_ERRORS.len());
+            f_oracle.debug_info = randomized_vec("abcdefghijklmn.".as_bytes(), '.' as u8);
 
-            let f_oracle = Frame::GoAway(f);
             let mut buf = f_oracle.serialize();
             let header = FrameHeader::parse(&buf[0..9]);
             let buf = buf.split_off(9);
-            let f_trial = Frame::parse(&header, buf);
+            let f_trial = GoAwayFrame::parse(&header, buf);
             match f_trial {
                 Ok(f_trial) => assert_eq!(f_trial, f_oracle),
                 Err(err) => assert!(false, "{:?}", err),
