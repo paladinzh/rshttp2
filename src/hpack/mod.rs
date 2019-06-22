@@ -90,7 +90,7 @@ impl Decoder {
                 let (raw, _) = input.split_at(input.len() - rem.len());
                 let raw = SelfOwnedSlice::new_with_slice(raw);
                 Ok((rem, 
-                    HeaderField::NeverIndex((name, value, raw)),
+                    HeaderField::NeverIndex((name, value, Some(raw))),
                 ))
             },
             _ => unreachable!(),
@@ -120,10 +120,11 @@ impl Decoder {
     }
 }
 
+#[derive(Eq, PartialEq)]
 pub enum HeaderField {
     Index((SelfOwnedSlice, SelfOwnedSlice)),
     NotIndex((SelfOwnedSlice, SelfOwnedSlice)),
-    NeverIndex((SelfOwnedSlice, SelfOwnedSlice, SelfOwnedSlice)),
+    NeverIndex((SelfOwnedSlice, SelfOwnedSlice, Option<SelfOwnedSlice>)),
 }
 
 impl Debug for HeaderField {
@@ -142,7 +143,7 @@ impl Debug for HeaderField {
                 res.push('=');
                 fmt_bytes(&mut res, value.as_slice());
             },
-            HeaderField::NeverIndex((name, value, raw)) => {
+            HeaderField::NeverIndex((name, value, _)) => {
                 res.push_str("HeaderField::NeverIndex(");
                 fmt_bytes(&mut res, name.as_slice());
                 res.push('=');
@@ -467,7 +468,7 @@ mod test {
             HeaderField::NeverIndex((name, value, raw)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
-                assert_eq!(raw.as_slice(), buf.as_slice());
+                assert_eq!(raw.unwrap().as_slice(), buf.as_slice());
             },
             _ => {
                 println!("{:?}", res);
@@ -492,7 +493,7 @@ mod test {
             HeaderField::NeverIndex((name, value, raw)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
-                assert_eq!(raw.as_slice(), buf.as_slice());
+                assert_eq!(raw.unwrap().as_slice(), buf.as_slice());
             },
             _ => {
                 println!("{:?}", res);
@@ -547,7 +548,7 @@ mod test {
                 HeaderField::NeverIndex((t_name, t_value, t_raw)) => {
                     assert_eq!(t_name.as_slice(), o_name);
                     assert_eq!(t_value.as_slice(), o_value);
-                    assert_eq!(t_raw.as_slice(), buf.as_slice());
+                    assert_eq!(t_raw.unwrap().as_slice(), buf.as_slice());
                 },
             }
         }

@@ -97,6 +97,8 @@ impl PartialEq for SelfOwnedSlice {
 
 impl Eq for SelfOwnedSlice {}
 
+unsafe impl Send for SelfOwnedSlice {}
+
 #[cfg(test)]
 mod test {
     use super::*;

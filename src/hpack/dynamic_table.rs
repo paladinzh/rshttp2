@@ -795,7 +795,7 @@ mod test {
         const BLOCK_SIZE: usize = 15;
         let mut trial = Cache::new(BLOCK_SIZE);
         trial.append(1, b"hello", b"world");
-        let (holder, i1) = trial.get(1).unwrap();
+        let (_holder, i1) = trial.get(1).unwrap();
         assert_eq!(get_cached_name(&trial, &i1), b"hello");
         assert_eq!(get_cached_value(&trial, &i1), b"world");
     }
@@ -812,10 +812,10 @@ mod test {
         let mut trial = Cache::new(BLOCK_SIZE);
         trial.append(1, KEY0, VALUE0);
         trial.append(2, KEY1, VALUE1);
-        let (holder, i1) = trial.get(1).unwrap();
+        let (_holder, i1) = trial.get(1).unwrap();
         assert_eq!(get_cached_name(&trial, &i1), KEY0);
         assert_eq!(get_cached_value(&trial, &i1), VALUE0);
-        let (holder, i2) = trial.get(2).unwrap();
+        let (_holder, i2) = trial.get(2).unwrap();
         assert_eq!(get_cached_name(&trial, &i2), KEY1);
         assert_eq!(get_cached_value(&trial, &i2), VALUE1);
     }
@@ -840,7 +840,7 @@ mod test {
         assert!(i0.is_none());
         let i1 = trial.get(1);
         assert!(i1.is_none());
-        let (holder, i2) = trial.get(2).unwrap();
+        let (_holder, i2) = trial.get(2).unwrap();
         assert_eq!(get_cached_name(&trial, &i2), KEY2);
         assert_eq!(get_cached_value(&trial, &i2), VALUE2);
     }
@@ -858,7 +858,7 @@ mod test {
         trial.append(0, KEY0, VALUE0);
         trial.truncate(0);
         trial.append(1, KEY1, VALUE1);
-        let (holder, i1) = trial.get(1).unwrap();
+        let (_holder, i1) = trial.get(1).unwrap();
         assert_eq!(get_cached_name(&trial, &i1), KEY1);
         assert_eq!(get_cached_value(&trial, &i1), VALUE1);
     }

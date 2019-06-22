@@ -84,7 +84,7 @@ impl Frame {
 pub struct HeadersFrame {
     end_stream: bool,
     end_headers: bool,
-    header_block: Vec<u8>,
+    header_block: Vec<HeaderField>,
     padding: Option<Vec<u8>>,
     priority: Option<PriorityInHeadersFrame>,
 }
@@ -158,14 +158,23 @@ impl HeadersFrame {
 
         {
             let (head, tail) = body.split_at(body.len() - pad_len);
-            frame.header_block = head.to_vec();
             {
-                let mut input: Vec<u8> = frame.header_block.clone();
+                let mut input: &[u8] = head;
                 let mut decoder = conn.as_ref().header_decoder.lock().unwrap();
                 while !input.is_empty() {
-                    let (remain, result) = decoder.parse_header_field(input.as_slice()).unwrap();
-                    debug!("GOT A HEADER FIELD: {:?}", result);
-                    input = remain.to_vec();
+                    match decoder.parse_header_field(input) {
+                        Ok((remain, result)) => {
+                            frame.header_block.push(result);
+                            input = remain;
+                        },
+                        Err(err) => {
+                            return Err(Error::new(
+                                error::Level::ConnectionLevel,
+                                error::Code::CompressionError,
+                                err.to_string(),
+                            ));
+                        }
+                    }
                 }
             }
             if padded {

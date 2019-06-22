@@ -23,6 +23,7 @@ mod connection;
 pub use connection::Connection;
 
 mod hpack;
+pub use hpack::HeaderField;
 
 mod sliceable;
 use sliceable::Sliceable;
