@@ -28,7 +28,7 @@ impl Decoder {
     pub fn parse_header_field<'a, 'b>(
         &'a mut self,
         input: &'b [u8],
-    ) -> Result<(&'b [u8], HeaderField), &'static str> {
+    ) -> Result<(&'b [u8], DecoderField), &'static str> {
         if input.is_empty() {
             return Err("shortage of input on deserialization.");
         }
@@ -47,7 +47,7 @@ impl Decoder {
                         Err("request a indexed no-value header field.")
                     },
                     Some(value) => {
-                        Ok((rem, HeaderField::Index((name, value))))
+                        Ok((rem, DecoderField::Index((name, value))))
                     },
                 }
             },
@@ -66,13 +66,13 @@ impl Decoder {
                 let item = self.dyntbl.prepend(name.as_slice(), value.as_slice());
                 match item {
                     Some(item) => {
-                        Ok((rem, HeaderField::Index((
+                        Ok((rem, DecoderField::Index((
                             SelfOwnedSlice::new_with_cached_str(&item.name),
                             SelfOwnedSlice::new_with_cached_str(&item.value.unwrap()),
                         ))))
                     },
                     None => {
-                        Ok((rem, HeaderField::Index((
+                        Ok((rem, DecoderField::Index((
                             name,
                             SelfOwnedSlice::new_with_maybe_owned_slice(value),
                         ))))
@@ -82,7 +82,7 @@ impl Decoder {
             x if check_prefix(x, LITERAL_WITHOUT_INDEXING) => {
                 let (rem, name, value) = self.parse_without_indexing(input)?;
                 Ok((rem, 
-                    HeaderField::NotIndex((name, value)),
+                    DecoderField::NotIndex((name, value)),
                 ))
             },
             x if check_prefix(x, LITERAL_NEVER_INDEXING) => {
@@ -90,7 +90,7 @@ impl Decoder {
                 let (raw, _) = input.split_at(input.len() - rem.len());
                 let raw = SelfOwnedSlice::new_with_slice(raw);
                 Ok((rem, 
-                    HeaderField::NeverIndex((name, value, Some(raw))),
+                    DecoderField::NeverIndex((name, value, raw)),
                 ))
             },
             _ => unreachable!(),
@@ -121,30 +121,30 @@ impl Decoder {
 }
 
 #[derive(Eq, PartialEq)]
-pub enum HeaderField {
+pub enum DecoderField {
     Index((SelfOwnedSlice, SelfOwnedSlice)),
     NotIndex((SelfOwnedSlice, SelfOwnedSlice)),
-    NeverIndex((SelfOwnedSlice, SelfOwnedSlice, Option<SelfOwnedSlice>)),
+    NeverIndex((SelfOwnedSlice, SelfOwnedSlice, SelfOwnedSlice)),
 }
 
-impl Debug for HeaderField {
+impl Debug for DecoderField {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         let mut res = String::new();
         match self {
-            HeaderField::Index((name, value)) => {
-                res.push_str("HeaderField::Index(");
+            DecoderField::Index((name, value)) => {
+                res.push_str("DecoderField::Index(");
                 fmt_bytes(&mut res, name.as_slice());
                 res.push('=');
                 fmt_bytes(&mut res, value.as_slice());
             },
-            HeaderField::NotIndex((name, value)) => {
-                res.push_str("HeaderField::NotIndex(");
+            DecoderField::NotIndex((name, value)) => {
+                res.push_str("DecoderField::NotIndex(");
                 fmt_bytes(&mut res, name.as_slice());
                 res.push('=');
                 fmt_bytes(&mut res, value.as_slice());
             },
-            HeaderField::NeverIndex((name, value, _)) => {
-                res.push_str("HeaderField::NeverIndex(");
+            DecoderField::NeverIndex((name, value, _)) => {
+                res.push_str("DecoderField::NeverIndex(");
                 fmt_bytes(&mut res, name.as_slice());
                 res.push('=');
                 fmt_bytes(&mut res, value.as_slice());
@@ -251,37 +251,40 @@ impl Encoder {
     pub fn encode_header_field(
         &mut self,
         out: &mut Vec<u8>,
-        hint: CacheHint,
-        name: &[u8],
-        value: &[u8],
+        field: &EncoderField,
     ) -> () {
-        match hint {
-            CacheHint::PREFER_CACHE => {
+        match field {
+            EncoderField::ToCache((name, value)) => {
                 let with_caching = |out: &mut Vec<u8>, idx: usize| {
                     serialize_uint(out, idx as u64, 6, 0x40);
                 };
                 self.encode_(out, name, value, with_caching);
             },
-            CacheHint::PREFER_NOT_CACHE => {
+            EncoderField::NotCache((name, value)) => {
                 let without_caching = |out: &mut Vec<u8>, idx: usize| {
                     serialize_uint(out, idx as u64, 4, 0x00);
                 };
                 self.encode_(out, name, value, without_caching);
             },
-            CacheHint::NEVER_CACHE => {
+            EncoderField::NeverCache((name, value)) => {
                 let never_caching = |out: &mut Vec<u8>, idx: usize| {
                     serialize_uint(out, idx as u64, 4, 0x10);
                 };
                 self.encode_(out, name, value, never_caching);
             },
+            EncoderField::NeverCacheRaw(raw) => {
+                out.extend_from_slice(raw);
+            },
         };
     }
 }
 
-pub enum CacheHint {
-    PREFER_CACHE,
-    PREFER_NOT_CACHE,
-    NEVER_CACHE,
+#[derive(Debug)]
+pub enum EncoderField<'a> {
+    ToCache((&'a [u8], &'a [u8])), // name, value
+    NotCache((&'a [u8], &'a [u8])), // name, value
+    NeverCache((&'a [u8], &'a [u8])), // name, value
+    NeverCacheRaw(&'a [u8]), // encoded name-value
 }
 
 impl Encoder {
@@ -333,7 +336,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            HeaderField::Index((name, value)) => {
+            DecoderField::Index((name, value)) => {
                 assert_eq!(name.as_slice(), b":method");
                 assert_eq!(value.as_slice(), b"GET");
             },
@@ -355,7 +358,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            HeaderField::Index((name, value)) => {
+            DecoderField::Index((name, value)) => {
                 assert_eq!(name.as_slice(), NAME1);
                 assert_eq!(value.as_slice(), VALUE1);
             },
@@ -375,7 +378,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            HeaderField::Index((name, value)) => {
+            DecoderField::Index((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -400,7 +403,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            HeaderField::Index((name, value)) => {
+            DecoderField::Index((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -424,7 +427,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            HeaderField::NotIndex((name, value)) => {
+            DecoderField::NotIndex((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -445,7 +448,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            HeaderField::NotIndex((name, value)) => {
+            DecoderField::NotIndex((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -465,10 +468,10 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            HeaderField::NeverIndex((name, value, raw)) => {
+            DecoderField::NeverIndex((name, value, raw)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
-                assert_eq!(raw.unwrap().as_slice(), buf.as_slice());
+                assert_eq!(raw.as_slice(), buf.as_slice());
             },
             _ => {
                 println!("{:?}", res);
@@ -490,10 +493,10 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            HeaderField::NeverIndex((name, value, raw)) => {
+            DecoderField::NeverIndex((name, value, raw)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
-                assert_eq!(raw.unwrap().as_slice(), buf.as_slice());
+                assert_eq!(raw.as_slice(), buf.as_slice());
             },
             _ => {
                 println!("{:?}", res);
@@ -524,31 +527,31 @@ mod test {
         let mut decoder = Decoder::with_capacity(CAP);
         let mut rng = random::default();
         for _ in 0..REPEAT {
-            let hint = match rng.read_u64() % 3 {
-                0 => CacheHint::PREFER_CACHE,
-                1 => CacheHint::PREFER_NOT_CACHE,
-                2 => CacheHint::NEVER_CACHE,
-                _ => unreachable!(),
-            };
             let o_name = names[(rng.read_u64() as usize) % names.len()];
             let o_value = values[(rng.read_u64() as usize) % values.len()];
+            let field = match rng.read_u64() % 3 {
+                0 => EncoderField::ToCache((o_name, o_value)),
+                1 => EncoderField::NotCache((o_name, o_value)),
+                2 => EncoderField::NeverCache((o_name, o_value)),
+                _ => unreachable!(),
+            };
             let mut buf: Vec<u8> = vec!();
-            encoder.encode_header_field(&mut buf, hint, o_name, o_value);
+            encoder.encode_header_field(&mut buf, &field);
             let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
             assert!(rem.is_empty(), "{:?}=>{:?}", o_name, o_value);
             match res {
-                HeaderField::Index((t_name, t_value)) => {
+                DecoderField::Index((t_name, t_value)) => {
                     assert_eq!(t_name.as_slice(), o_name);
                     assert_eq!(t_value.as_slice(), o_value);
                 },
-                HeaderField::NotIndex((t_name, t_value)) => {
+                DecoderField::NotIndex((t_name, t_value)) => {
                     assert_eq!(t_name.as_slice(), o_name);
                     assert_eq!(t_value.as_slice(), o_value);
                 },
-                HeaderField::NeverIndex((t_name, t_value, t_raw)) => {
+                DecoderField::NeverIndex((t_name, t_value, t_raw)) => {
                     assert_eq!(t_name.as_slice(), o_name);
                     assert_eq!(t_value.as_slice(), o_value);
-                    assert_eq!(t_raw.unwrap().as_slice(), buf.as_slice());
+                    assert_eq!(t_raw.as_slice(), buf.as_slice());
                 },
             }
         }

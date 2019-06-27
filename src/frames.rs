@@ -35,7 +35,7 @@ impl FrameHeader {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Frame {
-    Headers(HeadersFrame), // 1
+    ReceivedHeaders(ReceivedHeadersFrame), // 1
     Priority(PriorityFrame), // 2
     Settings(SettingsFrame), // 4
     GoAway(GoAwayFrame), // 7
@@ -49,8 +49,8 @@ impl Frame {
     ) -> Result<Frame, Error> {
         match header.frame_type {
             1 => {
-                let f = HeadersFrame::parse(conn, header, body)?;
-                Ok(Frame::Headers(f))
+                let f = ReceivedHeadersFrame::parse(conn, header, body)?;
+                Ok(Frame::ReceivedHeaders(f))
             },
             2 => {
                 let f = PriorityFrame::parse(header, body)?;
@@ -81,10 +81,10 @@ impl Frame {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct HeadersFrame {
+pub struct ReceivedHeadersFrame {
     end_stream: bool,
     end_headers: bool,
-    header_block: Vec<HeaderField>,
+    header_block: Vec<DecoderField>,
     padding: Option<Vec<u8>>,
     priority: Option<PriorityInHeadersFrame>,
 }
@@ -95,20 +95,20 @@ pub struct PriorityInHeadersFrame {
     dependency_stream: u32,
 }
 
-impl HeadersFrame {
+impl ReceivedHeadersFrame {
     fn parse(
         conn: &Arc<Connection>,
         header: &FrameHeader,
         body: Vec<u8>,
-    ) -> Result<HeadersFrame, Error> {
+    ) -> Result<ReceivedHeadersFrame, Error> {
         if header.stream_id == 0 {
             return Err(Error::new(
                 error::Level::ConnectionLevel,
                 error::Code::ProtocolError,
-                "HeadersFrame associates with stream 0.".to_string()));
+                "ReceivedHeadersFrame associates with stream 0.".to_string()));
         }
 
-        let mut frame = HeadersFrame{
+        let mut frame = ReceivedHeadersFrame{
             end_stream: false,
             end_headers: false,
             header_block: vec!(),

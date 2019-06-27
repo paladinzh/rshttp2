@@ -23,7 +23,7 @@ mod connection;
 pub use connection::Connection;
 
 mod hpack;
-pub use hpack::HeaderField;
+pub use hpack::{EncoderField, DecoderField};
 
 mod sliceable;
 use sliceable::Sliceable;
