@@ -133,7 +133,7 @@ impl DynamicTable {
             Some(x) => x
         };
         let mut new_start_id = start_id;
-        while self.h2_used_size + space > self.h2_limit_size && start_id <= end_id {
+        while self.h2_used_size + space > self.h2_limit_size && new_start_id <= end_id {
             let (_, cached) = self.cache.get(new_start_id).unwrap();
             let size = h2_size_from_len(cached.name_len, cached.value_len);
             assert!(size <= self.h2_used_size);

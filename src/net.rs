@@ -227,7 +227,7 @@ where W: 'static + Send + AsyncWrite {
                         _ => (),
                     };
                     debug!("dump a frame {:?}", frame);
-                    let buf = frame.serialize();
+                    let buf = frame.serialize(&conn);
                     let conn2 = conn.clone();
                     let task = io::write_all(socket_out, buf)
                         .and_then(move |(socket_out, _buf)| {

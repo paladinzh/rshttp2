@@ -49,7 +49,8 @@ impl Frame {
     ) -> Result<Frame, Error> {
         match header.frame_type {
             1 => {
-                let f = ReceivedHeadersFrame::parse(conn, header, body)?;
+                let mut decoder = conn.as_ref().header_decoder.lock().unwrap();
+                let f = ReceivedHeadersFrame::parse(&mut decoder, header, body)?;
                 Ok(Frame::Headers(f))
             },
             2 => {
@@ -87,7 +88,7 @@ pub enum SendFrame {
 }
 
 impl SendFrame {
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self, conn: &Arc<Connection>) -> Vec<u8> {
         match self {
             SendFrame::Settings(f) => f.serialize(),
             SendFrame::GoAway(f) => f.serialize(),
@@ -98,11 +99,12 @@ impl SendFrame {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct ReceivedHeadersFrame {
-    end_stream: bool,
-    end_headers: bool,
-    header_block: Vec<DecoderField>,
-    padding: Option<Vec<u8>>,
-    priority: Option<PriorityInHeadersFrame>,
+    pub stream_id: u32,
+    pub end_stream: bool,
+    pub end_headers: bool,
+    pub header_block: Vec<DecoderField>,
+    pub padding: Option<Vec<u8>>,
+    pub priority: Option<PriorityInHeadersFrame>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -113,7 +115,7 @@ pub struct PriorityInHeadersFrame {
 
 impl ReceivedHeadersFrame {
     fn parse(
-        conn: &Arc<Connection>,
+        decoder: &mut hpack::Decoder,
         header: &FrameHeader,
         body: Vec<u8>,
     ) -> Result<ReceivedHeadersFrame, Error> {
@@ -125,6 +127,7 @@ impl ReceivedHeadersFrame {
         }
 
         let mut frame = ReceivedHeadersFrame{
+            stream_id: header.stream_id,
             end_stream: false,
             end_headers: false,
             header_block: vec!(),
@@ -176,7 +179,6 @@ impl ReceivedHeadersFrame {
             let (head, tail) = body.split_at(body.len() - pad_len);
             {
                 let mut input: &[u8] = head;
-                let mut decoder = conn.as_ref().header_decoder.lock().unwrap();
                 while !input.is_empty() {
                     match decoder.parse_header_field(input) {
                         Ok((remain, result)) => {
@@ -201,6 +203,133 @@ impl ReceivedHeadersFrame {
         Ok(frame)
     }
 
+}
+
+#[derive(Debug)]
+pub struct SendHeadersFrame {
+    stream_id: u32,
+    end_stream: bool,
+    end_headers: bool,
+    headers: Vec<EncoderField>,
+    padding: Option<Vec<u8>>,
+    priority: Option<PriorityInHeadersFrame>,
+}
+
+impl SendHeadersFrame {
+    pub fn new(builder: SendHeadersFrameBuilder) -> SendHeadersFrame {
+        assert!(builder.stream_id.is_some(), 
+            "stream id is required for constructing a SendHeadersFrame");
+        assert!(!builder.headers.is_empty(),
+            "headers is required for constructing a SendHeadersFrame");
+        SendHeadersFrame{
+            stream_id: builder.stream_id.unwrap(),
+            end_stream: builder.end_stream,
+            end_headers: builder.end_headers,
+            headers: builder.headers,
+            padding: builder.padding,
+            priority: builder.priority,
+        }
+    }
+
+    fn serialize(&self, encoder: &mut hpack::Encoder) -> Vec<u8> {
+        let mut header_buf = vec!();
+        for field in &self.headers {
+            encoder.encode_header_field(&mut header_buf, field);
+        }
+
+        let mut main_buf = vec!();
+        let mut header = FrameHeader{
+            body_len: header_buf.len(),
+            frame_type: 1,
+            flags: 0,
+            stream_id: self.stream_id,
+        };
+
+        if self.end_stream {
+            header.flags |= 0x1;
+        }
+        if self.end_headers {
+            header.flags |= 0x4;
+        }
+        if self.padding.is_some() {
+            header.flags |= 0x8;
+            header.body_len += self.padding.as_ref().unwrap().len() + 1;
+        }
+        if self.priority.is_some() {
+            header.flags |= 0x20;
+            header.body_len += 5;
+        }
+        header.serialize(&mut main_buf);
+        if self.padding.is_some() {
+            let p = self.padding.as_ref().unwrap();
+            serialize_uint(&mut main_buf, p.len() as u64, 1);
+        }
+        if self.priority.is_some() {
+            let p = self.priority.as_ref().unwrap();
+            serialize_uint(&mut main_buf, p.dependency_stream, 4);
+            serialize_uint(&mut main_buf, p.weight, 1);
+        }
+        main_buf.append(&mut header_buf);
+        if self.padding.is_some() {
+            let p = self.padding.as_ref().unwrap();
+            main_buf.extend_from_slice(p.as_slice());
+        }
+
+        main_buf
+    }
+}
+
+#[derive(Debug)]
+pub struct SendHeadersFrameBuilder {
+    stream_id: Option<u32>,
+    end_stream: bool,
+    end_headers: bool,
+    headers: Vec<EncoderField>,
+    padding: Option<Vec<u8>>,
+    priority: Option<PriorityInHeadersFrame>,
+}
+
+impl SendHeadersFrameBuilder {
+    pub fn new() -> SendHeadersFrameBuilder {
+        SendHeadersFrameBuilder{
+            stream_id: None,
+            end_stream: false,
+            end_headers: false,
+            headers: vec!(),
+            padding: None,
+            priority: None,
+        }
+    }
+
+    pub fn set_stream_id(&mut self, stream_id: u32) -> &mut Self {
+        self.stream_id = Some(stream_id);
+        self
+    }
+
+    pub fn set_end_stream(&mut self) -> &mut Self {
+        self.end_stream = true;
+        self
+    }
+
+    pub fn set_end_headers(&mut self) -> &mut Self {
+        self.end_headers = true;
+        self
+    }
+
+    pub fn append_header_field(&mut self, field: EncoderField) -> &mut Self {
+        self.headers.push(field);
+        self
+    }
+
+    pub fn set_padding(&mut self, padding: Vec<u8>) -> &mut Self {
+        self.padding = Some(padding);
+        self
+    }
+
+    pub fn set_priority(&mut self, priority: PriorityInHeadersFrame) -> &mut Self {
+        self.priority = Some(priority);
+        self
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -440,7 +569,7 @@ mod test {
             let mut f_oracle = GoAwayFrame::new();
             f_oracle.last_stream_id = rng.read_u64() as u32;
             f_oracle.error_code = error::Code::from_h2_id((rng.read_u64() as usize) % ALL_ERRORS.len());
-            f_oracle.debug_info = randomized_vec("abcdefghijklmn.".as_bytes(), '.' as u8);
+            f_oracle.debug_info = randomized_vec(b"abcdefghijklmn.", b'.');
 
             let mut buf = f_oracle.serialize();
             let header = FrameHeader::parse(&buf[0..9]);
@@ -453,4 +582,111 @@ mod test {
         }
     }
 
+    #[test]
+    fn headersframe_serde() {
+        let mut rng = random::default();
+        let mut encoder = hpack::Encoder::with_capacity(100);
+        let mut decoder = hpack::Decoder::with_capacity(100);
+        for i in 0..10000 {
+            let f_oracle = SendHeadersFrame::new({
+                let mut builder = SendHeadersFrameBuilder::new();
+                builder.set_stream_id(rng.read_u64() as u32);
+                if rng.read_u64() % 2 == 1 {
+                    builder.set_end_headers();
+                }
+                if rng.read_u64() % 2 == 1 {
+                    builder.set_end_stream();
+                }
+                for _ in 0..(rng.read_u64() % 10 + 1) {
+                    let t = rng.read_u64() % 3;
+                    let name = randomized_vec(b"abcdefghijklmn.", b'.');
+                    let value = randomized_vec(b"abcdefghijklmn.", b'.');
+                    let field = match t {
+                        0 => EncoderField::ToCache((
+                            AnySliceable::new(name),
+                            AnySliceable::new(value),
+                        )),
+                        1 => EncoderField::NotCache((
+                            AnySliceable::new(name),
+                            AnySliceable::new(value),
+                        )),
+                        2 => EncoderField::NeverCache((
+                            AnySliceable::new(name),
+                            AnySliceable::new(value),
+                        )),
+                        _ => unreachable!(),
+                    };
+                    builder.append_header_field(field);
+                };
+                let padding = randomized_vec(b"abcde.", b'.');
+                if !padding.is_empty() {
+                    builder.set_padding(padding);
+                }
+                if rng.read_u64() % 2 == 1 {
+                    builder.set_priority(PriorityInHeadersFrame{
+                        weight: rng.read_u64() as u8,
+                        dependency_stream: rng.read_u64() as u32,
+                    });
+                }
+                builder
+            });
+            println!("{} {:?}", i, f_oracle);
+            let mut buf = f_oracle.serialize(&mut encoder);
+
+            let header = FrameHeader::parse(&buf[0..9]);
+            let buf = buf.split_off(9);
+            let f_trial = ReceivedHeadersFrame::parse(&mut decoder, &header, buf);
+            match f_trial {
+                Ok(f_trial) => {
+                    assert_eq!(f_oracle.stream_id, f_trial.stream_id,
+                        "{:?} {:?}", f_oracle, f_trial);
+                    assert_eq!(f_oracle.end_stream, f_trial.end_stream,
+                        "{:?} {:?}", f_oracle, f_trial);
+                    assert_eq!(f_oracle.end_headers, f_trial.end_headers,
+                        "{:?} {:?}", f_oracle, f_trial);
+                    assert_eq!(f_oracle.padding, f_trial.padding,
+                        "{:?} {:?}", f_oracle, f_trial);
+                    assert_eq!(f_oracle.priority, f_trial.priority,
+                        "{:?} {:?}", f_oracle, f_trial);
+                    assert_eq!(f_oracle.headers.len(), f_trial.header_block.len(),
+                        "{:?} {:?}", f_oracle, f_trial);
+                    for i in 0..f_oracle.headers.len() {
+                        let field_oracle = &f_oracle.headers[i];
+                        let field_trial = &f_trial.header_block[i];
+                        match field_oracle {
+                            EncoderField::ToCache((o_name, o_value)) => {
+                                match field_trial {
+                                    DecoderField::Normal((t_name, t_value)) => {
+                                        assert_eq!(o_name.as_slice(), t_name.as_slice());
+                                        assert_eq!(o_value.as_slice(), t_value.as_slice());
+                                    },
+                                    _ => panic!(),
+                                }
+                            },
+                            EncoderField::NotCache((o_name, o_value)) => {
+                                match field_trial {
+                                    DecoderField::Normal((t_name, t_value)) => {
+                                        assert_eq!(o_name.as_slice(), t_name.as_slice());
+                                        assert_eq!(o_value.as_slice(), t_value.as_slice());
+                                    },
+                                    _ => panic!(),
+                                }
+                            },
+                            EncoderField::NeverCache((o_name, o_value)) => {
+                                match field_trial {
+                                    DecoderField::NeverIndex((t_name, t_value, _)) => {
+                                        assert_eq!(o_name.as_slice(), t_name.as_slice());
+                                        assert_eq!(o_value.as_slice(), t_value.as_slice());
+                                    },
+                                    _ => panic!(),
+                                }
+                            },
+                            _ => unreachable!(),
+                        }
+                    }
+                },
+                Err(err) => assert!(false, "{:?}", err),
+            }
+        }
+    }
 }

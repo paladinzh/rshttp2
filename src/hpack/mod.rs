@@ -128,49 +128,23 @@ pub enum DecoderField {
 
 impl Debug for DecoderField {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        let mut res = String::new();
         match self {
             DecoderField::Normal((name, value)) => {
-                res.push_str("DecoderField::Normal(");
-                fmt_bytes(&mut res, name.as_slice());
-                res.push('=');
-                fmt_bytes(&mut res, value.as_slice());
+                f.write_fmt(
+                    format_args!(
+                        "DecoderField::Normal({:?}={:?})", 
+                        name, 
+                        value));
             },
             DecoderField::NeverIndex((name, value, _)) => {
-                res.push_str("DecoderField::NeverIndex(");
-                fmt_bytes(&mut res, name.as_slice());
-                res.push('=');
-                fmt_bytes(&mut res, value.as_slice());
+                f.write_fmt(
+                    format_args!(
+                        "DecoderField::NeverIndex({:?}={:?})", 
+                        name, 
+                        value));
             }
         }
-        res.push(')');
-        f.write_str(res.as_str())?;
         Ok(())
-    }
-
-}
-
-fn fmt_bytes(out: &mut String, bytes: &[u8]) -> () {
-    for b in bytes {
-        let b = *b;
-        if b >= 32u8 && b < 128u8 {
-            out.push(char::from(b));
-        } else {
-            out.push_str("\\x");
-            out.push(hex(b >> 4));
-            out.push(hex(b & 0x0F));
-        }
-    }
-}
-
-fn hex(b: u8) -> char {
-    const ZERO: u8 = 48u8;
-    const A: u8 = 65u8;
-    assert!(b < 0x10);
-    if b < 10 {
-        char::from(b + ZERO)
-    } else {
-        char::from(b + A)
     }
 }
 
@@ -274,10 +248,10 @@ impl Encoder {
 
 #[derive(Debug)]
 pub enum EncoderField {
-    ToCache((AnySliceable<u8>, AnySliceable<u8>)), // name, value
-    NotCache((AnySliceable<u8>, AnySliceable<u8>)), // name, value
-    NeverCache((AnySliceable<u8>, AnySliceable<u8>)), // name, value
-    NeverCacheRaw(AnySliceable<u8>), // encoded name-value
+    ToCache((AnySliceable, AnySliceable)), // name, value
+    NotCache((AnySliceable, AnySliceable)), // name, value
+    NeverCache((AnySliceable, AnySliceable)), // name, value
+    NeverCacheRaw(AnySliceable), // encoded name-value
 }
 
 impl Encoder {

@@ -1,3 +1,4 @@
+use random::Source;
 use super::huffman;
 use super::int::*;
 use super::super::Sliceable;
@@ -6,7 +7,12 @@ pub fn serialize_string(out: &mut Vec<u8>, input: &[u8]) -> () {
     if input.len() < 16 {
         serialize_raw_string(out, input)
     } else {
-        huffman::encode(out, input)
+        let mut tmp: Vec<u8> = vec!();
+        {
+            huffman::encode(&mut tmp, input);
+        }
+        serialize_uint(out, tmp.len() as u64, 7, 0x80);
+        out.append(&mut tmp);
     }
 }
 
@@ -117,4 +123,30 @@ mod test {
         assert_eq!(res.as_slice(), b"www.example.com");
     }
 
+    fn randomized_vec<T: Eq + Clone>(alphabet: &[T], terminator: T) -> Vec<T> {
+        let mut rng = random::default();
+        let len = alphabet.len();
+        let mut out = vec!();
+        loop {
+            let x = alphabet[(rng.read_u64() as usize) % len].clone();
+            if x == terminator {
+                break;
+            }
+            out.push(x);
+        }
+        out
+    }
+
+    #[test]
+    fn random() {
+        let mut rng = random::default();
+        for _ in 0..1000 {
+            let s = randomized_vec(b"abcdefghijklmn.", b'.');
+            let mut buf: Vec<u8> = vec!();
+            serialize_string(&mut buf, s.as_slice());
+            let (rem, res) = parse_string(buf.as_slice()).unwrap();
+            assert_eq!(s.as_slice(), res.as_slice());
+            assert!(rem.is_empty());
+        }
+    }
 }
