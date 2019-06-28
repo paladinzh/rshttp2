@@ -17,10 +17,10 @@ impl Debug for Sliceable {
     }
 }
 
-pub struct AnySliceable(Box<dyn Sliceable>);
+pub struct AnySliceable(Box<dyn Sliceable + Send>);
 
 impl AnySliceable {
-    pub fn new(obj: impl Sliceable + 'static) -> AnySliceable {
+    pub fn new(obj: impl Sliceable + Send + 'static) -> AnySliceable {
         AnySliceable(Box::new(obj))
     }
 }

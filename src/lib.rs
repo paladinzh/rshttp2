@@ -26,4 +26,4 @@ mod hpack;
 pub use hpack::{EncoderField, DecoderField};
 
 mod sliceable;
-use sliceable::*;
+pub use sliceable::*;

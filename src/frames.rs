@@ -83,6 +83,7 @@ impl Frame {
 
 #[derive(Debug)]
 pub enum SendFrame {
+    Headers(SendHeadersFrame), // 1
     Settings(SettingsFrame), // 4
     GoAway(GoAwayFrame), // 7
 }
@@ -90,6 +91,10 @@ pub enum SendFrame {
 impl SendFrame {
     pub fn serialize(&self, conn: &Arc<Connection>) -> Vec<u8> {
         match self {
+            SendFrame::Headers(f) => {
+                let mut encoder = conn.as_ref().header_encoder.lock().unwrap();
+                f.serialize(&mut encoder)
+            },
             SendFrame::Settings(f) => f.serialize(),
             SendFrame::GoAway(f) => f.serialize(),
             _ => panic!("unknown frame type: {:?}", self)
@@ -301,32 +306,32 @@ impl SendHeadersFrameBuilder {
         }
     }
 
-    pub fn set_stream_id(&mut self, stream_id: u32) -> &mut Self {
+    pub fn set_stream_id(mut self, stream_id: u32) -> Self {
         self.stream_id = Some(stream_id);
         self
     }
 
-    pub fn set_end_stream(&mut self) -> &mut Self {
+    pub fn set_end_stream(mut self) -> Self {
         self.end_stream = true;
         self
     }
 
-    pub fn set_end_headers(&mut self) -> &mut Self {
+    pub fn set_end_headers(mut self) -> Self {
         self.end_headers = true;
         self
     }
 
-    pub fn append_header_field(&mut self, field: EncoderField) -> &mut Self {
+    pub fn append_header_field(mut self, field: EncoderField) -> Self {
         self.headers.push(field);
         self
     }
 
-    pub fn set_padding(&mut self, padding: Vec<u8>) -> &mut Self {
+    pub fn set_padding(mut self, padding: Vec<u8>) -> Self {
         self.padding = Some(padding);
         self
     }
 
-    pub fn set_priority(&mut self, priority: PriorityInHeadersFrame) -> &mut Self {
+    pub fn set_priority(mut self, priority: PriorityInHeadersFrame) -> Self {
         self.priority = Some(priority);
         self
     }
@@ -587,15 +592,15 @@ mod test {
         let mut rng = random::default();
         let mut encoder = hpack::Encoder::with_capacity(100);
         let mut decoder = hpack::Decoder::with_capacity(100);
-        for i in 0..10000 {
+        for i in 0..1000 {
             let f_oracle = SendHeadersFrame::new({
                 let mut builder = SendHeadersFrameBuilder::new();
-                builder.set_stream_id(rng.read_u64() as u32);
+                builder = builder.set_stream_id(rng.read_u64() as u32);
                 if rng.read_u64() % 2 == 1 {
-                    builder.set_end_headers();
+                    builder = builder.set_end_headers();
                 }
                 if rng.read_u64() % 2 == 1 {
-                    builder.set_end_stream();
+                    builder = builder.set_end_stream();
                 }
                 for _ in 0..(rng.read_u64() % 10 + 1) {
                     let t = rng.read_u64() % 3;
@@ -616,14 +621,14 @@ mod test {
                         )),
                         _ => unreachable!(),
                     };
-                    builder.append_header_field(field);
+                    builder = builder.append_header_field(field);
                 };
                 let padding = randomized_vec(b"abcde.", b'.');
                 if !padding.is_empty() {
-                    builder.set_padding(padding);
+                    builder = builder.set_padding(padding);
                 }
                 if rng.read_u64() % 2 == 1 {
-                    builder.set_priority(PriorityInHeadersFrame{
+                    builder = builder.set_priority(PriorityInHeadersFrame{
                         weight: rng.read_u64() as u8,
                         dependency_stream: rng.read_u64() as u32,
                     });
