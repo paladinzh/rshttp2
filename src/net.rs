@@ -12,7 +12,7 @@ pub fn handshake<F>(
 ) -> Result<Arc<Connection>, super::error::Error>
 where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
     tcp.set_nodelay(true).unwrap();
-    let (tx, rx) = channel::<Frame>(cfg.sender_queue_size);
+    let (tx, rx) = channel::<SendFrame>(cfg.sender_queue_size);
     let mut conn = Connection::new(on_frame, tx);
     info!("start to handshake an incoming connection {}", conn.encoded_id());
     Arc::get_mut(&mut conn).unwrap()
@@ -54,7 +54,7 @@ where R: 'static + Send + AsyncRead {
                 last_stream_id: conn1.get_last_received_stream_id(),
                 error_code: error::Code::ConnectError,
                 debug_info: vec!()};
-            conn1.send_frame(Frame::GoAway(f));
+            conn1.send_frame(SendFrame::GoAway(f));
         });
     tokio::spawn(task);
 }
@@ -86,7 +86,7 @@ where R: 'static + Send + AsyncRead {
                         last_stream_id: conn.get_last_received_stream_id(),
                         error_code: error::Code::NoError,
                         debug_info: vec!()};
-                    conn.send_frame(Frame::GoAway(f));
+                    conn.send_frame(SendFrame::GoAway(f));
                 },
                 _ => (),
             }
@@ -103,7 +103,7 @@ where R: 'static + Send + AsyncRead {
                 last_stream_id: conn1.get_last_received_stream_id(),
                 error_code: error::Code::ConnectError,
                 debug_info: vec!()};
-            conn1.send_frame(Frame::GoAway(f));
+            conn1.send_frame(SendFrame::GoAway(f));
         });
     tokio::spawn(task);
  }
@@ -203,7 +203,7 @@ fn read_frame<R: 'static + Send + AsyncRead>(
 }
 
 fn start_send_coroutine<W>(
-    rx: Receiver<Frame>,
+    rx: Receiver<SendFrame>,
     socket_out: W,
     conn: Arc<Connection>,
 ) -> ()
@@ -221,7 +221,7 @@ where W: 'static + Send + AsyncWrite {
                 None => (),
                 Some(frame) => {
                     match frame {
-                        Frame::GoAway(_) => {
+                        SendFrame::GoAway(_) => {
                             conn.async_disconnect();
                         },
                         _ => (),
@@ -230,7 +230,7 @@ where W: 'static + Send + AsyncWrite {
                     let buf = frame.serialize();
                     let conn2 = conn.clone();
                     let task = io::write_all(socket_out, buf)
-                        .and_then(|(socket_out, _buf)| {
+                        .and_then(move |(socket_out, _buf)| {
                             start_send_coroutine(rx, socket_out, conn);
                             Ok(())
                         })

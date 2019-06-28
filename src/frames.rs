@@ -35,7 +35,7 @@ impl FrameHeader {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Frame {
-    ReceivedHeaders(ReceivedHeadersFrame), // 1
+    Headers(ReceivedHeadersFrame), // 1
     Priority(PriorityFrame), // 2
     Settings(SettingsFrame), // 4
     GoAway(GoAwayFrame), // 7
@@ -50,7 +50,7 @@ impl Frame {
         match header.frame_type {
             1 => {
                 let f = ReceivedHeadersFrame::parse(conn, header, body)?;
-                Ok(Frame::ReceivedHeaders(f))
+                Ok(Frame::Headers(f))
             },
             2 => {
                 let f = PriorityFrame::parse(header, body)?;
@@ -75,6 +75,22 @@ impl Frame {
         match self {
             Frame::Settings(f) => f.serialize(),
             Frame::GoAway(f) => f.serialize(),
+            _ => panic!("unknown frame type: {:?}", self)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum SendFrame {
+    Settings(SettingsFrame), // 4
+    GoAway(GoAwayFrame), // 7
+}
+
+impl SendFrame {
+    pub fn serialize(&self) -> Vec<u8> {
+        match self {
+            SendFrame::Settings(f) => f.serialize(),
+            SendFrame::GoAway(f) => f.serialize(),
             _ => panic!("unknown frame type: {:?}", self)
         }
     }

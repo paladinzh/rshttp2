@@ -9,7 +9,7 @@ use super::*;
 pub struct Connection {
     id: u64,
     on_frame: FnBox,
-    sender: Sender<Frame>,
+    sender: Sender<SendFrame>,
     my_h2_settings: Mutex<Settings>,
     remote_h2_settings: Mutex<Settings>,
     to_close: AtomicBool,
@@ -31,7 +31,7 @@ impl FnBox {
 }
 
 impl Connection {
-    pub fn new<F>(on_frame: F, sender: Sender<Frame>) -> Arc<Connection>
+    pub fn new<F>(on_frame: F, sender: Sender<SendFrame>) -> Arc<Connection>
     where F: 'static + Sync + Send + Fn(Arc<Connection>, Frame) -> () {
         Arc::new(Connection{
             id: random::default().read_u64(),
@@ -68,7 +68,7 @@ impl Connection {
                 whole.set(key.clone(), *val);
             }
         }
-        let f = Frame::Settings(SettingsFrame::new(false, new_values));
+        let f = SendFrame::Settings(SettingsFrame::new(false, new_values));
         self.send_frame(f);
     }
 
@@ -81,7 +81,7 @@ impl Connection {
             whole.set(key.clone(), *val);
         }
         // send back ack frame
-        self.send_frame(Frame::Settings(SettingsFrame::new(true, vec!())));
+        self.send_frame(SendFrame::Settings(SettingsFrame::new(true, vec!())));
     }
 
     pub fn trigger_user_callback(conn: &Arc<Connection>, frame: Frame) -> () {
@@ -89,7 +89,7 @@ impl Connection {
         f(conn.clone(), frame);
     }
     
-    pub fn send_frame(&self, f: Frame) {
+    pub fn send_frame(&self, f: SendFrame) {
         let q = self.sender.clone();
         inner_send_frame(q, f);
     }
@@ -107,7 +107,7 @@ impl Connection {
     }
 }
 
-fn inner_send_frame(mut q: Sender<Frame>, f: Frame) {
+fn inner_send_frame(mut q: Sender<SendFrame>, f: SendFrame) {
     let res = q.try_send(f);
     match res {
         Ok(_) => (),
