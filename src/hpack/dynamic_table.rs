@@ -193,7 +193,7 @@ impl CachedStr {
     }
 }
 
-impl Sliceable<u8> for CachedStr {
+impl Sliceable for CachedStr {
     fn as_slice(&self) -> &[u8] {
         unsafe {
             slice::from_raw_parts(self.ptr, self.len)

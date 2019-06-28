@@ -53,7 +53,7 @@ impl SelfOwnedSlice {
     }
 }
 
-impl Sliceable<u8> for SelfOwnedSlice {
+impl Sliceable for SelfOwnedSlice {
     fn as_slice(&self) -> &[u8] {
         match self {
             SelfOwnedSlice::Array((len, ref arr)) => {

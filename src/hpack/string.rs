@@ -53,7 +53,7 @@ impl<'a> MaybeOwnedSlice<'a> {
     }
 }
 
-impl<'a> Sliceable<u8> for MaybeOwnedSlice<'a> {
+impl<'a> Sliceable for MaybeOwnedSlice<'a> {
     fn as_slice(&self) -> &[u8] {
         match self {
             MaybeOwnedSlice::Slice(x) => x,

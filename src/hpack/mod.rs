@@ -251,33 +251,33 @@ impl Encoder {
                 let with_caching = |out: &mut Vec<u8>, idx: usize| {
                     serialize_uint(out, idx as u64, 6, 0x40);
                 };
-                self.encode_(out, name, value, with_caching);
+                self.encode_(out, name.as_slice(), value.as_slice(), with_caching);
             },
             EncoderField::NotCache((name, value)) => {
                 let without_caching = |out: &mut Vec<u8>, idx: usize| {
                     serialize_uint(out, idx as u64, 4, 0x00);
                 };
-                self.encode_(out, name, value, without_caching);
+                self.encode_(out, name.as_slice(), value.as_slice(), without_caching);
             },
             EncoderField::NeverCache((name, value)) => {
                 let never_caching = |out: &mut Vec<u8>, idx: usize| {
                     serialize_uint(out, idx as u64, 4, 0x10);
                 };
-                self.encode_(out, name, value, never_caching);
+                self.encode_(out, name.as_slice(), value.as_slice(), never_caching);
             },
             EncoderField::NeverCacheRaw(raw) => {
-                out.extend_from_slice(raw);
+                out.extend_from_slice(raw.as_slice());
             },
         };
     }
 }
 
 #[derive(Debug)]
-pub enum EncoderField<'a> {
-    ToCache((&'a [u8], &'a [u8])), // name, value
-    NotCache((&'a [u8], &'a [u8])), // name, value
-    NeverCache((&'a [u8], &'a [u8])), // name, value
-    NeverCacheRaw(&'a [u8]), // encoded name-value
+pub enum EncoderField {
+    ToCache((AnySliceable<u8>, AnySliceable<u8>)), // name, value
+    NotCache((AnySliceable<u8>, AnySliceable<u8>)), // name, value
+    NeverCache((AnySliceable<u8>, AnySliceable<u8>)), // name, value
+    NeverCacheRaw(AnySliceable<u8>), // encoded name-value
 }
 
 impl Encoder {
@@ -523,9 +523,18 @@ mod test {
             let o_name = names[(rng.read_u64() as usize) % names.len()];
             let o_value = values[(rng.read_u64() as usize) % values.len()];
             let field = match rng.read_u64() % 3 {
-                0 => EncoderField::ToCache((o_name, o_value)),
-                1 => EncoderField::NotCache((o_name, o_value)),
-                2 => EncoderField::NeverCache((o_name, o_value)),
+                0 => EncoderField::ToCache((
+                    AnySliceable::new(o_name.to_vec()), 
+                    AnySliceable::new(o_value.to_vec()),
+                )),
+                1 => EncoderField::NotCache((
+                    AnySliceable::new(o_name.to_vec()), 
+                    AnySliceable::new(o_value.to_vec()),
+                )),
+                2 => EncoderField::NeverCache((
+                    AnySliceable::new(o_name.to_vec()), 
+                    AnySliceable::new(o_value.to_vec()),
+                )),
                 _ => unreachable!(),
             };
             let mut buf: Vec<u8> = vec!();
