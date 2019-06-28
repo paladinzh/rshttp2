@@ -47,7 +47,7 @@ impl Decoder {
                         Err("request a indexed no-value header field.")
                     },
                     Some(value) => {
-                        Ok((rem, DecoderField::Index((name, value))))
+                        Ok((rem, DecoderField::Normal((name, value))))
                     },
                 }
             },
@@ -66,13 +66,13 @@ impl Decoder {
                 let item = self.dyntbl.prepend(name.as_slice(), value.as_slice());
                 match item {
                     Some(item) => {
-                        Ok((rem, DecoderField::Index((
+                        Ok((rem, DecoderField::Normal((
                             SelfOwnedSlice::new_with_cached_str(&item.name),
                             SelfOwnedSlice::new_with_cached_str(&item.value.unwrap()),
                         ))))
                     },
                     None => {
-                        Ok((rem, DecoderField::Index((
+                        Ok((rem, DecoderField::Normal((
                             name,
                             SelfOwnedSlice::new_with_maybe_owned_slice(value),
                         ))))
@@ -82,7 +82,7 @@ impl Decoder {
             x if check_prefix(x, LITERAL_WITHOUT_INDEXING) => {
                 let (rem, name, value) = self.parse_without_indexing(input)?;
                 Ok((rem, 
-                    DecoderField::NotIndex((name, value)),
+                    DecoderField::Normal((name, value)),
                 ))
             },
             x if check_prefix(x, LITERAL_NEVER_INDEXING) => {
@@ -122,8 +122,7 @@ impl Decoder {
 
 #[derive(Eq, PartialEq)]
 pub enum DecoderField {
-    Index((SelfOwnedSlice, SelfOwnedSlice)),
-    NotIndex((SelfOwnedSlice, SelfOwnedSlice)),
+    Normal((SelfOwnedSlice, SelfOwnedSlice)),
     NeverIndex((SelfOwnedSlice, SelfOwnedSlice, SelfOwnedSlice)),
 }
 
@@ -131,14 +130,8 @@ impl Debug for DecoderField {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         let mut res = String::new();
         match self {
-            DecoderField::Index((name, value)) => {
-                res.push_str("DecoderField::Index(");
-                fmt_bytes(&mut res, name.as_slice());
-                res.push('=');
-                fmt_bytes(&mut res, value.as_slice());
-            },
-            DecoderField::NotIndex((name, value)) => {
-                res.push_str("DecoderField::NotIndex(");
+            DecoderField::Normal((name, value)) => {
+                res.push_str("DecoderField::Normal(");
                 fmt_bytes(&mut res, name.as_slice());
                 res.push('=');
                 fmt_bytes(&mut res, value.as_slice());
@@ -336,7 +329,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecoderField::Index((name, value)) => {
+            DecoderField::Normal((name, value)) => {
                 assert_eq!(name.as_slice(), b":method");
                 assert_eq!(value.as_slice(), b"GET");
             },
@@ -358,7 +351,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecoderField::Index((name, value)) => {
+            DecoderField::Normal((name, value)) => {
                 assert_eq!(name.as_slice(), NAME1);
                 assert_eq!(value.as_slice(), VALUE1);
             },
@@ -378,7 +371,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecoderField::Index((name, value)) => {
+            DecoderField::Normal((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -403,7 +396,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecoderField::Index((name, value)) => {
+            DecoderField::Normal((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -427,7 +420,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecoderField::NotIndex((name, value)) => {
+            DecoderField::Normal((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -448,7 +441,7 @@ mod test {
         let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
         assert!(rem.is_empty());
         match res {
-            DecoderField::NotIndex((name, value)) => {
+            DecoderField::Normal((name, value)) => {
                 assert_eq!(name.as_slice(), b"age");
                 assert_eq!(value.as_slice(), AGE);
             },
@@ -540,11 +533,7 @@ mod test {
             let (rem, res) = decoder.parse_header_field(buf.as_slice()).unwrap();
             assert!(rem.is_empty(), "{:?}=>{:?}", o_name, o_value);
             match res {
-                DecoderField::Index((t_name, t_value)) => {
-                    assert_eq!(t_name.as_slice(), o_name);
-                    assert_eq!(t_value.as_slice(), o_value);
-                },
-                DecoderField::NotIndex((t_name, t_value)) => {
+                DecoderField::Normal((t_name, t_value)) => {
                     assert_eq!(t_name.as_slice(), o_name);
                     assert_eq!(t_value.as_slice(), o_value);
                 },
